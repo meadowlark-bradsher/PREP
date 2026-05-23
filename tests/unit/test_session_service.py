@@ -24,6 +24,7 @@ from predictive_review.sessions.service import SessionService
 from predictive_review.storage.models import (
     Base,
     ClosureAttempt,
+    ClosureMode,
     DialogueTurn,
     DispositionStatus,
     HypothesisRevision,
@@ -142,9 +143,10 @@ def test_submit_creates_session_with_regions_and_phase_events(
                 select(PhaseEvent).where(PhaseEvent.session_id == session_id)
             ).scalars()
         )
-        # SQLite CURRENT_TIMESTAMP is second-precision, so events written in
-        # the same transaction tie on entered_at. Check membership; ordering
-        # will become assertable once entered_at carries microseconds.
+        # entered_at now carries microseconds, but two events flushed within
+        # one transaction can still tie below clock resolution. The unique
+        # (session_id, phase) constraint plus state-machine ordering tells us
+        # exactly what happened — we don't need timestamp ordering for that.
         assert {e.phase for e in events} == {
             SessionPhase.SUBMITTED,
             SessionPhase.HYPOTHESIS,
@@ -273,6 +275,7 @@ def test_passing_reconciliation_moves_region_to_disposition(
     with session_factory() as db:
         region = db.get(Region, region_ids[0])
         assert region.status is RegionStatus.AWAITING_DISPOSITION
+        assert region.closure_mode is ClosureMode.JUDGE_PASSED
         attempts = list(
             db.execute(
                 select(ClosureAttempt).where(
@@ -390,6 +393,11 @@ def test_close_with_disagreement_skips_to_disposition(service, session_factory):
         session_id=session_id, region_id=region_id
     )
     assert _region_status(session_factory, region_id) is RegionStatus.AWAITING_DISPOSITION
+    with session_factory() as db:
+        assert (
+            db.get(Region, region_id).closure_mode
+            is ClosureMode.ENGINEER_DISAGREED
+        )
 
 
 # --- disposition + session completion -------------------------------------

@@ -51,9 +51,28 @@ class RegionStatus(str, enum.Enum):
 
 
 class DispositionStatus(str, enum.Enum):
+    """What the engineer decided about the actual code change.
+
+    Orthogonal to ClosureMode (how the region's understanding-check closed):
+    an engineer can disagree with the model's reading and still accept the
+    code as-is, or agree with the reading and flag for redesign.
+    """
+
     ACCEPTED_AS_IS = "accepted_as_is"
     FLAGGED_FOR_REDESIGN = "flagged_for_redesign"
-    CLOSED_WITH_DISAGREEMENT = "closed_with_disagreement"
+
+
+class ClosureMode(str, enum.Enum):
+    """How a region reached AWAITING_DISPOSITION.
+
+    Set when the region transitions out of the reconciliation/dialogue
+    loop. JUDGE_PASSED means the closure judge approved the engineer's
+    teach-back. ENGINEER_DISAGREED means the engineer chose to close
+    over the judge's objection (a recorded override, not a failure).
+    """
+
+    JUDGE_PASSED = "judge_passed"
+    ENGINEER_DISAGREED = "engineer_disagreed"
 
 
 class ClosureVerdict(str, enum.Enum):
@@ -116,7 +135,11 @@ class PhaseEvent(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"))
     phase: Mapped[SessionPhase] = mapped_column(Enum(SessionPhase))
-    entered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Python-side default gives microsecond precision so events written in
+    # the same transaction can be ordered. SQLite CURRENT_TIMESTAMP only
+    # resolves to seconds, which ties events that were inserted moments
+    # apart and leaves their ordering implementation-defined.
+    entered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     session: Mapped[Session] = relationship(back_populates="phase_events")
 
@@ -132,10 +155,13 @@ class Region(Base):
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"))
     ordinal: Mapped[int] = mapped_column(Integer)
     structural_label: Mapped[str] = mapped_column(Text)
-    hunk_ref: Mapped[str] = mapped_column(Text)
+    hunk: Mapped[dict] = mapped_column(JSON)
     selector_rationale: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[RegionStatus] = mapped_column(
         Enum(RegionStatus), default=RegionStatus.AWAITING_RECONCILIATION
+    )
+    closure_mode: Mapped[Optional[ClosureMode]] = mapped_column(
+        Enum(ClosureMode), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

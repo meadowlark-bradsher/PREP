@@ -34,7 +34,7 @@ LOAD-BEARING PROPERTIES ENFORCED HERE
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession, selectinload
@@ -48,6 +48,7 @@ from ..selectors.base import SelectorContext
 from ..selectors.registry import SelectorRegistry
 from ..storage.models import (
     ClosureAttempt,
+    ClosureMode,
     ClosureVerdict,
     DialogueRole,
     DialogueTurn,
@@ -146,7 +147,7 @@ class SessionService:
                         session_id=session.id,
                         ordinal=ordinal,
                         structural_label=region_view.structural_label,
-                        hunk_ref=region_view.hunk.text,
+                        hunk=asdict(region_view.hunk),
                         selector_rationale=dict(region_view.selector_rationale),
                         status=RegionStatus.AWAITING_RECONCILIATION,
                     )
@@ -348,6 +349,7 @@ class SessionService:
             self._require_region_status(region, RegionStatus.IN_DIALOGUE)
 
             region.status = RegionStatus.AWAITING_DISPOSITION
+            region.closure_mode = ClosureMode.ENGINEER_DISAGREED
             db.commit()
 
     # --- phase 4: disposition ----------------------------------------------
@@ -510,6 +512,7 @@ class SessionService:
 
         if verdict.outcome is JudgeOutcome.PASS:
             region.status = RegionStatus.AWAITING_DISPOSITION
+            region.closure_mode = ClosureMode.JUDGE_PASSED
         else:
             region.status = RegionStatus.IN_DIALOGUE
 
@@ -528,22 +531,10 @@ def _to_region_view(region: Region) -> RegionView:
     even though hypotheses live on the same ORM graph; constructing a
     fresh RegionView with only the persisted code metadata guarantees
     the LLM call has no traversal path to them.
-
-    v1 wart: Region.hunk_ref stores only the hunk text, so we lose
-    file_path and line numbers on the round-trip. The production
-    reading generator will need this metadata; a later commit will
-    persist the full Hunk as JSON rather than text.
     """
     return RegionView(
         structural_label=region.structural_label,
-        hunk=Hunk(
-            file_path="",
-            old_start=0,
-            old_count=0,
-            new_start=0,
-            new_count=0,
-            text=region.hunk_ref,
-        ),
+        hunk=Hunk(**region.hunk),
         selector_rationale=region.selector_rationale or {},
     )
 
