@@ -9,6 +9,7 @@ dependencies = [
     "alembic>=1.13",
     "pydantic-settings>=2.0",
     "unidiff>=0.7.5",
+    "anthropic>=0.40",
 ]
 
 [dependency-groups]

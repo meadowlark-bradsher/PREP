@@ -10,7 +10,7 @@ is enforced by callers passing fresh inputs, not by the client.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class Completion:
     model_id: str
 
 
+@runtime_checkable
 class LLMClient(Protocol):
     def complete(
         self,
