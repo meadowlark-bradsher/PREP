@@ -10,7 +10,11 @@ dependencies = [
     "pydantic-settings>=2.0",
     "unidiff>=0.7.5",
     "anthropic>=0.40",
+    "click>=8.1",
 ]
+
+[project.scripts]
+prep = "predictive_review.cli:cli"
 
 [dependency-groups]
 dev = [
