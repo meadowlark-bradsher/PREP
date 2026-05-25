@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from predictive_review.dialogue import DialogueMessage, DialogueResponse
 from predictive_review.domain.region import Region
 from predictive_review.judge import JudgeOutcome, JudgeVerdict
+from predictive_review.llm.client import Completion, Message
 from predictive_review.reading import ReadingResult
 
 
@@ -73,6 +74,38 @@ def _default_judge_policy(
     if "understand" in teach_back_statement.lower():
         return JudgeOutcome.PASS, None
     return JudgeOutcome.FAIL, "teach-back did not address the retry semantics"
+
+
+@dataclass
+class CapturingLLMClient:
+    """A fake LLMClient that captures every call and returns a canned response.
+
+    Used by component wiring tests: assert the component invoked the client
+    with the expected system / messages / model, and that it parsed the
+    canned response back into the right typed result.
+    """
+
+    response_text: str = ""
+    model_id: str = "claude-test"
+    calls: list[dict] = field(default_factory=list)
+
+    def complete(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        model: str,
+        max_tokens: int = 4096,
+    ) -> Completion:
+        self.calls.append(
+            {
+                "system": system,
+                "messages": messages,
+                "model": model,
+                "max_tokens": max_tokens,
+            }
+        )
+        return Completion(text=self.response_text, model_id=self.model_id)
 
 
 @dataclass

@@ -12,13 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from predictive_review.dialogue import DialogueManager
 from predictive_review.domain.diff import parse_diff
-from predictive_review.judge import ClosureJudge
-from predictive_review.reading import ReadingGenerator
 from predictive_review.selectors.base import RegionSelector
 from predictive_review.selectors.development import FirstNHunksSelector
-from predictive_review.selectors.llm_judgment import LLMJudgmentSelector
 from predictive_review.selectors.registry import default_registry
 
 
@@ -117,43 +113,6 @@ def test_registry_rejects_duplicate_registration() -> None:
         reg.register("a", FirstNHunksSelector)
 
 
-# --- production stubs fail loudly ------------------------------------------
-
-
-class _DummyLLM:
-    def complete(self, *, system, messages, model, max_tokens=4096):  # type: ignore[no-untyped-def]
-        raise AssertionError("LLM should not be called by stubs")
-
-
-def test_llm_judgment_selector_raises_until_prompts_added() -> None:
-    selector = LLMJudgmentSelector(_DummyLLM())
-    diff = parse_diff(SAMPLE_DIFF)
-    with pytest.raises(NotImplementedError):
-        selector.select(diff)
-
-
-def test_reading_generator_raises_until_prompts_added() -> None:
-    gen = ReadingGenerator(_DummyLLM())
-    diff = parse_diff(SAMPLE_DIFF)
-    region = FirstNHunksSelector().select(diff)[0]
-    with pytest.raises(NotImplementedError):
-        gen.generate(region)
-
-
-def test_closure_judge_raises_until_prompts_added() -> None:
-    judge = ClosureJudge(_DummyLLM())
-    with pytest.raises(NotImplementedError):
-        judge.judge(reading_body="r", teach_back_statement="t")
-
-
-def test_dialogue_manager_raises_until_prompts_added() -> None:
-    mgr = DialogueManager(_DummyLLM())
-    diff = parse_diff(SAMPLE_DIFF)
-    region = FirstNHunksSelector().select(diff)[0]
-    with pytest.raises(NotImplementedError):
-        mgr.respond(
-            region=region,
-            reading_body="r",
-            prior_turns=[],
-            engineer_message="why?",
-        )
+# Wiring tests for the four LLM-bearing components are in test_components.py.
+# This file keeps tests that don't require any LLM at all: diff parsing,
+# the dev selector, and the registry.

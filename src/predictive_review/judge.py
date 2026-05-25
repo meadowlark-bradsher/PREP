@@ -28,6 +28,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from .llm.client import LLMClient, Message
+from .llm.parsing import extract_json
+from .llm.prompts import load_prompt
+
 
 class JudgeOutcome(str, Enum):
     PASS = "pass"
@@ -42,15 +46,22 @@ class JudgeVerdict:
     prompt_version: str
 
 
-from .llm.client import LLMClient  # noqa: E402 — kept below dataclass for clarity
-
-
 class ClosureJudge:
     name = "judge"
     version = "v1"
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(
+        self,
+        *,
+        llm: LLMClient,
+        model: str,
+        prompt_version: str = "v1",
+        prompt_template: str | None = None,
+    ) -> None:
         self._llm = llm
+        self._model = model
+        self._prompt_version = prompt_version
+        self._system = prompt_template or load_prompt(f"judge_{prompt_version}")
 
     def judge(
         self,
@@ -58,6 +69,32 @@ class ClosureJudge:
         reading_body: str,
         teach_back_statement: str,
     ) -> JudgeVerdict:
-        raise NotImplementedError(
-            "ClosureJudge.judge: prompt engineering pending"
+        user_content = (
+            f"Reading:\n{reading_body}\n\n"
+            f"Engineer's teach-back:\n{teach_back_statement}"
+        )
+        completion = self._llm.complete(
+            system=self._system,
+            messages=[Message(role="user", content=user_content)],
+            model=self._model,
+        )
+        data = extract_json(completion.text)
+
+        raw_verdict = str(data.get("verdict", "")).strip().upper()
+        if raw_verdict not in ("PASS", "FAIL"):
+            raise ValueError(
+                f"judge returned unrecognized verdict: {raw_verdict!r}"
+            )
+        outcome = JudgeOutcome.PASS if raw_verdict == "PASS" else JudgeOutcome.FAIL
+        missing = data.get("missing_aspects")
+        if outcome is JudgeOutcome.PASS:
+            missing = None
+        elif not missing:
+            raise ValueError("judge returned FAIL without missing_aspects")
+
+        return JudgeVerdict(
+            outcome=outcome,
+            missing_aspects=missing,
+            model_id=completion.model_id,
+            prompt_version=self._prompt_version,
         )

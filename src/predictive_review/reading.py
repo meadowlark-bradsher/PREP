@@ -18,7 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .domain.region import Region
-from .llm.client import LLMClient
+from .llm.client import LLMClient, Message
+from .llm.prompts import load_prompt
 
 
 @dataclass(frozen=True)
@@ -32,10 +33,31 @@ class ReadingGenerator:
     name = "reading"
     version = "v1"
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(
+        self,
+        *,
+        llm: LLMClient,
+        model: str,
+        prompt_version: str = "v1",
+        prompt_template: str | None = None,
+    ) -> None:
         self._llm = llm
+        self._model = model
+        self._prompt_version = prompt_version
+        self._system = prompt_template or load_prompt(f"reading_{prompt_version}")
 
     def generate(self, region: Region) -> ReadingResult:
-        raise NotImplementedError(
-            "ReadingGenerator.generate: prompt engineering pending"
+        user_content = (
+            f"Region label: {region.structural_label}\n\n"
+            f"Code:\n```\n{region.hunk.text}\n```"
+        )
+        completion = self._llm.complete(
+            system=self._system,
+            messages=[Message(role="user", content=user_content)],
+            model=self._model,
+        )
+        return ReadingResult(
+            body=completion.text.strip(),
+            model_id=completion.model_id,
+            prompt_version=self._prompt_version,
         )

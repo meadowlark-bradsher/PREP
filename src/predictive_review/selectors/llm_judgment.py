@@ -1,19 +1,19 @@
-"""V1 production selector: LLM-judgment over the diff.
+"""LLM-judgment region selector.
 
-Currently a stub. The prompt that lets a model identify load-bearing
-regions is the load-bearing prompt of the whole application and is
-being engineered in weeks 4–5 per the PM timeline. Until that prompt
-exists, this class raises so production paths fail loudly rather than
-silently.
-
-For development and tests, use selectors.development.FirstNHunksSelector.
+The v1 production selector. Asks an LLM to pick 2-4 load-bearing hunks
+out of the diff. Per the PM doc, the selection contract is intentionally
+narrow — the selector is pluggable so future approaches (entropy ranking,
+blame-aware, IRT-driven) drop in as alternative implementations of the
+same Protocol without touching the rest of the application.
 """
 
 from __future__ import annotations
 
-from ..domain.diff import Diff
+from ..domain.diff import Diff, Hunk
 from ..domain.region import Region
-from ..llm.client import LLMClient
+from ..llm.client import LLMClient, Message
+from ..llm.parsing import extract_json
+from ..llm.prompts import load_prompt
 from .base import SelectorContext
 
 
@@ -21,8 +21,18 @@ class LLMJudgmentSelector:
     name = "llm_judgment"
     version = "v1"
 
-    def __init__(self, llm: LLMClient) -> None:
+    def __init__(
+        self,
+        *,
+        llm: LLMClient,
+        model: str,
+        prompt_version: str = "v1",
+        prompt_template: str | None = None,
+    ) -> None:
         self._llm = llm
+        self._model = model
+        self._prompt_version = prompt_version
+        self._system = prompt_template or load_prompt(f"selector_{prompt_version}")
 
     def select(
         self,
@@ -30,7 +40,50 @@ class LLMJudgmentSelector:
         *,
         context: SelectorContext | None = None,
     ) -> list[Region]:
-        raise NotImplementedError(
-            "LLMJudgmentSelector.select: prompt engineering pending "
-            "(see PM doc §'Architecture: region selection')"
+        if not diff.hunks:
+            return []
+
+        user_content = _format_hunks(diff.hunks)
+        completion = self._llm.complete(
+            system=self._system,
+            messages=[Message(role="user", content=user_content)],
+            model=self._model,
         )
+        data = extract_json(completion.text)
+
+        raw_selections = data.get("selections", [])
+        if not isinstance(raw_selections, list) or not raw_selections:
+            raise ValueError("selector returned no selections")
+
+        regions: list[Region] = []
+        for raw in raw_selections:
+            idx = int(raw["hunk_index"]) - 1  # prompt uses 1-based indexing
+            if not 0 <= idx < len(diff.hunks):
+                raise ValueError(
+                    f"selector referenced out-of-range hunk_index: "
+                    f"{raw['hunk_index']} (have {len(diff.hunks)} hunks)"
+                )
+            regions.append(
+                Region(
+                    structural_label=str(raw["structural_label"]).strip(),
+                    hunk=diff.hunks[idx],
+                    selector_rationale={
+                        "rationale": str(raw.get("rationale", "")).strip(),
+                        "prompt_version": self._prompt_version,
+                        "model_id": completion.model_id,
+                    },
+                )
+            )
+        return regions
+
+
+def _format_hunks(hunks: tuple[Hunk, ...]) -> str:
+    """Number hunks 1-based and present each with its file and body.
+
+    The selector references hunks by index in its JSON response; this
+    formatting is what the indices refer to.
+    """
+    parts = []
+    for i, h in enumerate(hunks, start=1):
+        parts.append(f"### Hunk {i}: {h.file_path}\n```\n{h.text}\n```")
+    return "\n\n".join(parts)
