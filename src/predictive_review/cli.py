@@ -13,6 +13,7 @@ end-to-end.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import click
@@ -62,8 +63,20 @@ def init_db(alembic_config: str) -> None:
     "--diff",
     "diff_source",
     type=click.File("r"),
-    default="-",
-    help="Path to a unified diff. Reads stdin if omitted (use '-' explicitly).",
+    default=None,
+    help="Path to a unified diff file. Use '-' for stdin.",
+)
+@click.option(
+    "--commit",
+    "commit_sha",
+    default=None,
+    help="Run `git show <sha>` and use that diff (e.g. HEAD, HEAD~1, 2ea9187).",
+)
+@click.option(
+    "--range",
+    "git_range",
+    default=None,
+    help="Run `git diff <range>` and use that diff (e.g. main..HEAD).",
 )
 @click.option(
     "--engineer",
@@ -86,12 +99,18 @@ def init_db(alembic_config: str) -> None:
 )
 def run(
     diff_source,
+    commit_sha: str | None,
+    git_range: str | None,
     engineer: str,
     selector: str,
     layout: str,
 ) -> None:
-    """Walk one Predictive Review session interactively, end-to-end."""
-    diff_text = diff_source.read()
+    """Walk one Predictive Review session interactively, end-to-end.
+
+    Diff source is one of: --diff (file or stdin), --commit (git show), or
+    --range (git diff). With none of these, reads from stdin.
+    """
+    diff_text = _resolve_diff_text(diff_source, commit_sha, git_range)
     if not diff_text.strip():
         raise click.UsageError("diff is empty")
 
@@ -124,6 +143,57 @@ def run(
         _run_region_reconciliation(service, session_id, region, layout_enum)
 
     click.secho(f"\nSession {session_id} complete.", fg="green")
+
+
+# --- diff sourcing -------------------------------------------------------
+
+
+def _resolve_diff_text(
+    diff_source,
+    commit_sha: str | None,
+    git_range: str | None,
+) -> str:
+    sources_given = sum(
+        x is not None for x in (diff_source, commit_sha, git_range)
+    )
+    if sources_given > 1:
+        raise click.UsageError(
+            "--diff, --commit, and --range are mutually exclusive"
+        )
+    if commit_sha:
+        return _strip_to_diff(_run_git(["git", "show", commit_sha]))
+    if git_range:
+        return _strip_to_diff(_run_git(["git", "diff", git_range]))
+    source = diff_source or click.get_text_stream("stdin")
+    return source.read()
+
+
+def _run_git(args: list[str]) -> str:
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, check=True
+        )
+    except FileNotFoundError as e:
+        raise click.ClickException(
+            "git executable not found on PATH"
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(
+            f"{' '.join(args)} failed:\n{e.stderr.strip()}"
+        ) from e
+    return result.stdout
+
+
+def _strip_to_diff(output: str) -> str:
+    """Strip the git-show preamble (commit / Author / Date / message) up to
+    the first `diff --git` line. `git diff` output has no preamble so this
+    is a no-op for it.
+    """
+    lines = output.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("diff --git"):
+            return "".join(lines[i:])
+    raise click.ClickException("git output contains no diff")
 
 
 # --- hypothesis phase ----------------------------------------------------
