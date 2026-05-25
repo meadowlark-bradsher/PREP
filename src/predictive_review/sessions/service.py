@@ -87,6 +87,23 @@ class DialogueTurnResult:
     turn_index: int
 
 
+@dataclass(frozen=True)
+class RegionSnapshot:
+    """Read-only view of a region for callers outside the service.
+
+    The CLI and the future web layer use these to iterate regions without
+    reaching into the ORM directly. Snapshots are point-in-time — re-read
+    after each state-changing call.
+    """
+
+    id: str
+    ordinal: int
+    structural_label: str
+    hunk_text: str
+    status: "RegionStatus"
+    closure_mode: "ClosureMode | None"
+
+
 class SessionService:
     def __init__(
         self,
@@ -388,6 +405,38 @@ class SessionService:
                 )
 
             db.commit()
+
+    # --- read-side --------------------------------------------------------
+
+    def list_regions(self, session_id: str) -> list[RegionSnapshot]:
+        with self._session_factory() as db:
+            session = self._get_session_with_regions(db, session_id)
+            return [
+                RegionSnapshot(
+                    id=r.id,
+                    ordinal=r.ordinal,
+                    structural_label=r.structural_label,
+                    hunk_text=r.hunk.get("text", ""),
+                    status=r.status,
+                    closure_mode=r.closure_mode,
+                )
+                for r in session.regions
+            ]
+
+    def get_reading(self, region_id: str) -> str | None:
+        with self._session_factory() as db:
+            reading = self._fetch_reading(db, region_id)
+            return reading.body if reading else None
+
+    def get_locked_hypothesis(self, region_id: str) -> str | None:
+        with self._session_factory() as db:
+            stmt = (
+                select(HypothesisRevision)
+                .where(HypothesisRevision.region_id == region_id)
+                .where(HypothesisRevision.is_locked.is_(True))
+            )
+            rev = db.execute(stmt).scalar_one_or_none()
+            return rev.body if rev else None
 
     # --- helpers -----------------------------------------------------------
 
