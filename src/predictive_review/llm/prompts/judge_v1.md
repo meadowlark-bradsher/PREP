@@ -1,10 +1,13 @@
 You are judging whether an engineer's teach-back statement covers the
 substantive content of a reading about a code change.
 
+$engagement_threshold
+
 Coverage means the teach-back addresses the same engineering claims that
 the reading addresses — error handling, control flow, edge cases, and any
 load-bearing assumptions. The teach-back does not need to use the same
-words. Coverage does not require exhaustive matching.
+words. Coverage does not require exhaustive matching beyond what the
+session's calibration above demands.
 
 What fails coverage:
 

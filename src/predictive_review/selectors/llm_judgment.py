@@ -9,11 +9,15 @@ same Protocol without touching the rest of the application.
 
 from __future__ import annotations
 
+from string import Template
+
 from ..domain.diff import Diff, Hunk
 from ..domain.region import Region
 from ..llm.client import LLMClient, Message
 from ..llm.parsing import extract_json
 from ..llm.prompts import load_prompt
+from ..llm.threshold import selector_guidance
+from ..storage.models import EngagementThreshold
 from .base import SelectorContext
 
 
@@ -32,7 +36,9 @@ class LLMJudgmentSelector:
         self._llm = llm
         self._model = model
         self._prompt_version = prompt_version
-        self._system = prompt_template or load_prompt(f"selector_{prompt_version}")
+        self._system_template = prompt_template or load_prompt(
+            f"selector_{prompt_version}"
+        )
 
     def select(
         self,
@@ -43,9 +49,18 @@ class LLMJudgmentSelector:
         if not diff.hunks:
             return []
 
+        threshold = (
+            context.engagement_threshold
+            if context is not None
+            else EngagementThreshold.DEFAULT
+        )
+        system = Template(self._system_template).safe_substitute(
+            engagement_threshold=selector_guidance(threshold)
+        )
+
         user_content = _format_hunks(diff.hunks)
         completion = self._llm.complete(
-            system=self._system,
+            system=system,
             messages=[Message(role="user", content=user_content)],
             model=self._model,
         )

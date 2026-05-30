@@ -25,6 +25,7 @@ from ..sessions.errors import InvalidPhaseTransition, InvalidRegionStatus
 from ..sessions.service import RegionSnapshot, SessionService
 from ..storage.models import (
     DispositionStatus,
+    EngagementThreshold,
     OverrideReason,
     ReconciliationLayout,
     RegionStatus,
@@ -51,6 +52,7 @@ def register_routes(app: FastAPI) -> None:
         diff_text: str = Form(""),
         commit: str = Form(""),
         git_range: str = Form(""),
+        engagement_threshold: str = Form("default"),
         service: SessionService = Depends(get_service),
     ) -> RedirectResponse:
         # Exactly one of diff_text / commit / git_range must be provided.
@@ -91,11 +93,22 @@ def register_routes(app: FastAPI) -> None:
             source_range = git_range.strip()
 
         try:
+            threshold_enum = EngagementThreshold(engagement_threshold)
+        except ValueError:
+            return TEMPLATES.TemplateResponse(
+                request,
+                "launcher.html",
+                {"error": f"Unknown engagement threshold: {engagement_threshold!r}"},
+                status_code=400,
+            )
+
+        try:
             session_id = service.submit(
                 diff_text=diff_text,
                 engineer_identifier=engineer.strip() or "default",
                 selector_name="llm_judgment",
                 layout=ReconciliationLayout.INLINE_HUNK,
+                engagement_threshold=threshold_enum,
                 source_commit=source_commit,
                 source_range=source_range,
             )

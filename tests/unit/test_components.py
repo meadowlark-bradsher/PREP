@@ -257,3 +257,77 @@ def test_dialogue_appends_engineer_message_and_returns_response() -> None:
     assert msgs[0].content == "why does it retry?"
     assert msgs[1].content == "because of the policy."
     assert msgs[2].content == "is the retry bounded?"
+
+
+# --- engagement threshold substitution -------------------------------------
+
+
+def test_selector_substitutes_threshold_guidance_into_prompt() -> None:
+    from predictive_review.selectors.base import SelectorContext
+    from predictive_review.storage.models import EngagementThreshold
+
+    llm = CapturingLLMClient(
+        response_text=json.dumps(
+            {
+                "selections": [
+                    {
+                        "hunk_index": 1,
+                        "structural_label": "x",
+                        "rationale": "y",
+                    }
+                ]
+            }
+        )
+    )
+    selector = LLMJudgmentSelector(
+        llm=llm,
+        model="claude-haiku-x",
+        prompt_template="header\n$engagement_threshold\nfooter",
+    )
+    diff = parse_diff(SAMPLE_DIFF)
+
+    selector.select(
+        diff,
+        context=SelectorContext(
+            engagement_threshold=EngagementThreshold.LOAD_BEARING_ONLY
+        ),
+    )
+    system = llm.calls[0]["system"]
+    assert "LOAD-BEARING ONLY" in system
+    assert "$engagement_threshold" not in system
+
+
+def test_judge_substitutes_threshold_guidance_into_prompt() -> None:
+    from predictive_review.storage.models import EngagementThreshold
+
+    llm = CapturingLLMClient(
+        response_text=json.dumps({"verdict": "PASS", "missing_aspects": None})
+    )
+    judge = ClosureJudge(
+        llm=llm,
+        model="claude-sonnet-x",
+        prompt_template="header\n$engagement_threshold\nfooter",
+    )
+    judge.judge(
+        reading_body="r",
+        teach_back_statement="t",
+        engagement_threshold=EngagementThreshold.THOROUGH,
+    )
+    system = llm.calls[0]["system"]
+    assert "THOROUGH" in system
+    assert "$engagement_threshold" not in system
+
+
+def test_judge_defaults_threshold_to_default_when_unset() -> None:
+    """Backward compatibility: callers that don't pass engagement_threshold
+    still work, with the DEFAULT bar applied."""
+    llm = CapturingLLMClient(
+        response_text=json.dumps({"verdict": "PASS", "missing_aspects": None})
+    )
+    judge = ClosureJudge(
+        llm=llm,
+        model="claude-sonnet-x",
+        prompt_template="$engagement_threshold",
+    )
+    judge.judge(reading_body="r", teach_back_statement="t")
+    assert "DEFAULT" in llm.calls[0]["system"]

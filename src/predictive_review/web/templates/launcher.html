@@ -13,6 +13,27 @@
       <input type="text" name="engineer" value="default" autocomplete="off">
     </label>
 
+    <fieldset class="threshold-choice">
+      <legend>Engagement threshold</legend>
+      <p class="lede">
+        Coarse knob set once for this session. The selector picks regions
+        more or less aggressively; the judge applies a lighter or stricter
+        coverage bar.
+      </p>
+      <label class="radio">
+        <input type="radio" name="engagement_threshold" value="load_bearing_only">
+        <span><strong>Load-bearing only</strong> — fewer regions, lighter coverage bar. For low-stakes sessions.</span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="engagement_threshold" value="default" checked>
+        <span><strong>Default</strong> — design choices and notable details.</span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="engagement_threshold" value="thorough">
+        <span><strong>Thorough</strong> — more regions, stricter coverage bar. For high-stakes sessions.</span>
+      </label>
+    </fieldset>
+
     <fieldset class="diff-source">
       <legend>Diff source (fill exactly one)</legend>
 

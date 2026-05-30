@@ -56,8 +56,9 @@ class FakeClosureJudge:
         *,
         reading_body: str,
         teach_back_statement: str,
+        engagement_threshold=None,  # accepted and recorded; doesn't drive policy
     ) -> JudgeVerdict:
-        self.calls.append((reading_body, teach_back_statement))
+        self.calls.append((reading_body, teach_back_statement, engagement_threshold))
         decider = self.decide or _default_judge_policy
         outcome, missing = decider(reading_body, teach_back_statement)
         return JudgeVerdict(

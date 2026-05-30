@@ -25,11 +25,13 @@ from typing import Protocol, runtime_checkable
 
 from ..domain.diff import Diff
 from ..domain.region import Region
+from ..storage.models import EngagementThreshold
 
 
 @dataclass(frozen=True)
 class SelectorContext:
     engineer_identifier: str | None = None
+    engagement_threshold: EngagementThreshold = EngagementThreshold.DEFAULT
 
 
 @runtime_checkable

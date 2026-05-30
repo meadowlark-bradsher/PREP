@@ -27,10 +27,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from string import Template
 
 from .llm.client import LLMClient, Message
 from .llm.parsing import extract_json
 from .llm.prompts import load_prompt
+from .llm.threshold import judge_guidance
+from .storage.models import EngagementThreshold
 
 
 class JudgeOutcome(str, Enum):
@@ -61,20 +64,26 @@ class ClosureJudge:
         self._llm = llm
         self._model = model
         self._prompt_version = prompt_version
-        self._system = prompt_template or load_prompt(f"judge_{prompt_version}")
+        self._system_template = prompt_template or load_prompt(
+            f"judge_{prompt_version}"
+        )
 
     def judge(
         self,
         *,
         reading_body: str,
         teach_back_statement: str,
+        engagement_threshold: EngagementThreshold = EngagementThreshold.DEFAULT,
     ) -> JudgeVerdict:
+        system = Template(self._system_template).safe_substitute(
+            engagement_threshold=judge_guidance(engagement_threshold)
+        )
         user_content = (
             f"Reading:\n{reading_body}\n\n"
             f"Engineer's teach-back:\n{teach_back_statement}"
         )
         completion = self._llm.complete(
-            system=self._system,
+            system=system,
             messages=[Message(role="user", content=user_content)],
             model=self._model,
         )

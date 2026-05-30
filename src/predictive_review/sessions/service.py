@@ -54,6 +54,7 @@ from ..storage.models import (
     DialogueTurn,
     Disposition,
     DispositionStatus,
+    EngagementThreshold,
     Engineer,
     HypothesisRevision,
     OverrideReason,
@@ -169,6 +170,7 @@ class SessionService:
         engineer_identifier: str,
         selector_name: str,
         layout: ReconciliationLayout,
+        engagement_threshold: EngagementThreshold = EngagementThreshold.DEFAULT,
         source_commit: str | None = None,
         source_range: str | None = None,
     ) -> str:
@@ -182,7 +184,11 @@ class SessionService:
         diff = parse_diff(diff_text)
         selector = self._selectors.get(selector_name)
         candidate_regions = selector.select(
-            diff, context=SelectorContext(engineer_identifier=engineer_identifier)
+            diff,
+            context=SelectorContext(
+                engineer_identifier=engineer_identifier,
+                engagement_threshold=engagement_threshold,
+            ),
         )
         if not candidate_regions:
             raise ValueError("selector returned no regions")
@@ -197,6 +203,7 @@ class SessionService:
                 selector_name=selector.name,
                 selector_version=selector.version,
                 reconciliation_layout=layout,
+                engagement_threshold=engagement_threshold,
                 current_phase=SessionPhase.HYPOTHESIS,
             )
             db.add(session)
@@ -321,6 +328,7 @@ class SessionService:
                 reading_body=reading.body,
                 teach_back_statement=body,
                 attempt_number=1,
+                engagement_threshold=session.engagement_threshold,
             )
 
     def dialogue_turn(
@@ -384,7 +392,7 @@ class SessionService:
         body: str,
     ) -> ClosureAttemptResult:
         with self._session_factory() as db:
-            self._get_session(db, session_id)
+            session = self._get_session(db, session_id)
             region = self._get_region(db, region_id, session_id)
             self._require_region_status(region, RegionStatus.IN_DIALOGUE)
 
@@ -401,6 +409,7 @@ class SessionService:
                 reading_body=reading.body,
                 teach_back_statement=body,
                 attempt_number=next_number,
+                engagement_threshold=session.engagement_threshold,
             )
 
     def close_with_disagreement(
@@ -776,10 +785,12 @@ class SessionService:
         reading_body: str,
         teach_back_statement: str,
         attempt_number: int,
+        engagement_threshold: EngagementThreshold,
     ) -> ClosureAttemptResult:
         verdict: JudgeVerdict = self._judge.judge(
             reading_body=reading_body,
             teach_back_statement=teach_back_statement,
+            engagement_threshold=engagement_threshold,
         )
         db.add(
             ClosureAttempt(

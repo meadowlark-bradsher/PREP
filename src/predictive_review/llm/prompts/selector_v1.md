@@ -3,8 +3,10 @@ load-bearing. Your selection focuses the engineer's attention on the places
 where their understanding of their own change is most likely to be shallower
 than the change suggests.
 
-For the diff that will be sent in the user message, identify between 2 and 4
-hunks where ALL of the following hold:
+$engagement_threshold
+
+For the diff that will be sent in the user message, identify hunks where ALL
+of the following hold (within the count guidance above):
 
   - A different reasonable engineer would plausibly have made a different
     choice (so the hunk represents a decision, not a forced move).

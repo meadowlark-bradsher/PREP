@@ -591,6 +591,85 @@ def test_override_reason_surfaces_in_session_summary(client, service):
 # --- 404s ------------------------------------------------------------------
 
 
+def test_launcher_renders_threshold_radio_with_default_checked(client):
+    r = client.get("/launch")
+    assert r.status_code == 200
+    assert 'name="engagement_threshold"' in r.text
+    assert 'value="load_bearing_only"' in r.text
+    assert 'value="default" checked' in r.text
+    assert 'value="thorough"' in r.text
+
+
+def test_launch_persists_chosen_threshold_on_session(client, service):
+    session_id = _start_with_threshold(client, "thorough")
+    snap = service.get_session(session_id)
+    assert snap is not None
+    assert snap is not None  # for type-narrowing
+    # The persisted threshold matches the radio choice.
+    from predictive_review.storage.models import EngagementThreshold
+    # SessionSnapshot doesn't carry engagement_threshold yet (not load-bearing
+    # for the read-side UI); fetch from ORM via list_regions context.
+    # Confirm via the service-level attribute on the persisted row:
+    with service._session_factory() as db:  # type: ignore[attr-defined]
+        from predictive_review.storage.models import Session as Sess
+        row = db.get(Sess, session_id)
+        assert row.engagement_threshold is EngagementThreshold.THOROUGH
+
+
+def test_launch_rejects_unknown_threshold(client):
+    r = client.post(
+        "/launch",
+        data={
+            "engineer": "x",
+            "diff_text": SAMPLE_DIFF,
+            "commit": "",
+            "git_range": "",
+            "engagement_threshold": "vibes",
+        },
+    )
+    assert r.status_code == 400
+
+
+def test_threshold_flows_into_judge_call(client, service):
+    """The judge call receives the engagement_threshold the session was
+    submitted with. The FakeClosureJudge records every call's threshold
+    in its .calls list."""
+    session_id = _start_with_threshold(client, "load_bearing_only")
+    regions = service.list_regions(session_id)
+    data = {f"hypothesis_{r.id}": "draft" for r in regions}
+    data["action"] = "reveal"
+    client.post(f"/sessions/{session_id}/hypothesis", data=data)
+    client.post(f"/sessions/{session_id}/reveal")
+    _engage_all_via_routes(client, session_id, regions)
+    client.post(
+        f"/sessions/{session_id}/regions/{regions[0].id}/reconcile",
+        data={"body": "I understand"},
+    )
+    # FakeClosureJudge records (reading_body, teach_back_statement,
+    # engagement_threshold) per call.
+    from predictive_review.storage.models import EngagementThreshold
+    assert service._judge.calls  # type: ignore[attr-defined]
+    assert (
+        service._judge.calls[0][2]  # type: ignore[attr-defined]
+        is EngagementThreshold.LOAD_BEARING_ONLY
+    )
+
+
+def _start_with_threshold(client, threshold: str) -> str:
+    r = client.post(
+        "/launch",
+        data={
+            "engineer": "x",
+            "diff_text": SAMPLE_DIFF,
+            "commit": "",
+            "git_range": "",
+            "engagement_threshold": threshold,
+        },
+        follow_redirects=False,
+    )
+    return r.headers["location"].rsplit("/", 1)[-1]
+
+
 def test_unknown_session_resume_returns_404(client):
     r = client.get("/sessions/does-not-exist", follow_redirects=False)
     assert r.status_code == 404
