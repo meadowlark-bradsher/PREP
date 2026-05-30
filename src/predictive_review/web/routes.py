@@ -180,11 +180,52 @@ def register_routes(app: FastAPI) -> None:
             service.lock_and_reveal(session_id=session_id)
         except InvalidPhaseTransition as e:
             raise HTTPException(status_code=400, detail=str(e))
-        # Commit 3: auto-engage every region. The three-way choice screen
-        # in commit 4 will replace this with the engineer's per-region
-        # decision (engage / acknowledge / defer).
-        for r in service.list_regions(session_id):
-            service.engage_region(session_id=session_id, region_id=r.id)
+        # Regions land at AWAITING_REVEAL_CHOICE; resume_url routes the
+        # engineer to the first one for the three-way choice.
+        return RedirectResponse(
+            url=_resume_url(service, session_id), status_code=303
+        )
+
+    @app.post("/sessions/{session_id}/regions/{region_id}/engage")
+    def engage(
+        session_id: str,
+        region_id: str,
+        service: SessionService = Depends(get_service),
+    ) -> RedirectResponse:
+        service.engage_region(session_id=session_id, region_id=region_id)
+        return RedirectResponse(
+            url=f"/sessions/{session_id}/regions/{region_id}", status_code=303
+        )
+
+    @app.post("/sessions/{session_id}/regions/{region_id}/acknowledge")
+    def acknowledge(
+        session_id: str,
+        region_id: str,
+        note: str = Form(...),
+        service: SessionService = Depends(get_service),
+    ) -> RedirectResponse:
+        try:
+            service.acknowledge_region(
+                session_id=session_id, region_id=region_id, note=note
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        # Acknowledge lands the region at AWAITING_DISPOSITION — the
+        # engineer is sent to the same region surface, which now shows
+        # the accept/flag form.
+        return RedirectResponse(
+            url=f"/sessions/{session_id}/regions/{region_id}", status_code=303
+        )
+
+    @app.post("/sessions/{session_id}/regions/{region_id}/defer")
+    def defer(
+        session_id: str,
+        region_id: str,
+        service: SessionService = Depends(get_service),
+    ) -> RedirectResponse:
+        service.defer_region(session_id=session_id, region_id=region_id)
+        # Resume picks the next not-CLOSED not-deferred region, so the
+        # engineer is moved on. They can revisit via the chip strip.
         return RedirectResponse(
             url=_resume_url(service, session_id), status_code=303
         )
@@ -387,19 +428,27 @@ def _require_region(
 
 
 def _resume_url(service: SessionService, session_id: str) -> str:
-    """Pick the right screen for the current state of this session."""
+    """Pick the right screen for the current state of this session.
+
+    Resume order during RECONCILIATION:
+      1. Active (not-CLOSED, not-deferred) regions, in ordinal order.
+      2. If none active remain, the first deferred region — at which
+         point the engineer must engage / acknowledge to close out.
+      3. If everything is CLOSED but the session phase still says
+         RECONCILIATION, the summary is the graceful fallback.
+    """
     session = _require_session(service, session_id)
     if session.current_phase is SessionPhase.HYPOTHESIS:
         return f"/sessions/{session_id}/hypothesis"
     if session.current_phase is SessionPhase.COMPLETE:
         return f"/sessions/{session_id}/summary"
-    # RECONCILIATION phase — route to the first not-yet-CLOSED region.
     regions = service.list_regions(session_id)
     for r in regions:
-        if r.status is not RegionStatus.CLOSED:
+        if r.status is not RegionStatus.CLOSED and not r.is_deferred:
             return f"/sessions/{session_id}/regions/{r.id}"
-    # All regions closed but session didn't complete — shouldn't happen,
-    # but render the summary as a graceful fallback.
+    for r in regions:
+        if r.status is not RegionStatus.CLOSED:  # deferred
+            return f"/sessions/{session_id}/regions/{r.id}"
     return f"/sessions/{session_id}/summary"
 
 

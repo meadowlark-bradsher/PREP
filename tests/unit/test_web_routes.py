@@ -188,6 +188,7 @@ def test_hypothesis_save_with_reveal_action_triggers_reveal(client, service):
 
 
 def _through_reveal(client, service) -> tuple[str, list]:
+    """Submit → hypothesize → reveal. Regions are at AWAITING_REVEAL_CHOICE."""
     session_id = _start(client)
     regions = service.list_regions(session_id)
     data = {f"hypothesis_{r.id}": "draft" for r in regions}
@@ -197,24 +198,135 @@ def _through_reveal(client, service) -> tuple[str, list]:
     return session_id, service.list_regions(session_id)
 
 
-def test_reveal_auto_engages_all_regions(client, service):
+def _engage_all_via_routes(client, session_id, regions):
+    """Engage every region through the route. Used by tests that want to
+    drive past the three-way choice into the reconciliation flow."""
+    for r in regions:
+        client.post(f"/sessions/{session_id}/regions/{r.id}/engage")
+
+
+def test_reveal_lands_regions_at_reveal_choice(client, service):
     session_id, regions = _through_reveal(client, service)
     for r in regions:
-        # In commit 3, post-reveal regions are auto-engaged to AWAITING_RECONCILIATION.
-        # Commit 4 will replace this with the three-way choice.
-        assert r.status.value == "awaiting_reconciliation"
+        assert r.status.value == "awaiting_reveal_choice"
+        assert r.is_deferred is False
 
 
-def test_region_surface_shows_hypothesis_reading_and_reconciliation_form(
-    client, service
-):
+def test_reveal_redirects_to_first_region_for_choice(client, service):
+    session_id = _start(client)
+    regions = service.list_regions(session_id)
+    data = {f"hypothesis_{r.id}": "draft" for r in regions}
+    data["action"] = "reveal"
+    client.post(f"/sessions/{session_id}/hypothesis", data=data)
+    r = client.post(f"/sessions/{session_id}/reveal", follow_redirects=False)
+    assert r.status_code == 303
+    assert f"/sessions/{session_id}/regions/{regions[0].id}" in r.headers["location"]
+
+
+def test_region_surface_at_reveal_choice_shows_three_buttons(client, service):
     session_id, regions = _through_reveal(client, service)
     r = client.get(f"/sessions/{session_id}/regions/{regions[0].id}")
     assert r.status_code == 200
-    assert "Your locked hypothesis" in r.text
-    assert "draft" in r.text  # the hypothesis text
-    assert "FAKE READING" in r.text
-    assert 'name="body"' in r.text  # the reconciliation textarea
+    assert "Choose your engagement" in r.text
+    assert "Engage" in r.text and "Acknowledge" in r.text and "Defer" in r.text
+    assert 'name="note"' in r.text  # the acknowledgment input
+
+
+def test_engage_route_moves_region_to_reconciliation(client, service):
+    session_id, regions = _through_reveal(client, service)
+    region_id = regions[0].id
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/engage",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    region = service.get_region(session_id, region_id)
+    assert region.status.value == "awaiting_reconciliation"
+
+
+def test_acknowledge_route_closes_with_note(client, service):
+    session_id, regions = _through_reveal(client, service)
+    region_id = regions[0].id
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/acknowledge",
+        data={"note": "routine null-check, no deeper engagement needed"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    region = service.get_region(session_id, region_id)
+    assert region.status.value == "awaiting_disposition"
+    assert region.closure_mode.value == "acknowledged"
+    assert "null-check" in region.acknowledgment_note
+
+
+def test_acknowledge_route_rejects_blank_note(client, service):
+    session_id, regions = _through_reveal(client, service)
+    r = client.post(
+        f"/sessions/{session_id}/regions/{regions[0].id}/acknowledge",
+        data={"note": "   "},
+    )
+    assert r.status_code == 400
+
+
+def test_defer_skips_to_next_active_region(client, service):
+    session_id, regions = _through_reveal(client, service)
+    first_id, second_id = regions[0].id, regions[1].id
+    r = client.post(
+        f"/sessions/{session_id}/regions/{first_id}/defer",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/sessions/{session_id}/regions/{second_id}"
+    assert service.get_region(session_id, first_id).is_deferred is True
+
+
+def test_deferred_region_surface_notes_prior_deferral(client, service):
+    session_id, regions = _through_reveal(client, service)
+    region_id = regions[0].id
+    client.post(f"/sessions/{session_id}/regions/{region_id}/defer")
+    r = client.get(f"/sessions/{session_id}/regions/{region_id}")
+    assert "previously deferred" in r.text.lower()
+
+
+def test_engaging_a_deferred_region_clears_the_flag(client, service):
+    session_id, regions = _through_reveal(client, service)
+    region_id = regions[0].id
+    client.post(f"/sessions/{session_id}/regions/{region_id}/defer")
+    client.post(f"/sessions/{session_id}/regions/{region_id}/engage")
+    region = service.get_region(session_id, region_id)
+    assert region.is_deferred is False
+    assert region.status.value == "awaiting_reconciliation"
+
+
+def test_resume_prefers_active_over_deferred(client, service):
+    """Defer region 1, then resume should route to region 2 (active),
+    not back to region 1 (deferred)."""
+    session_id, regions = _through_reveal(client, service)
+    client.post(f"/sessions/{session_id}/regions/{regions[0].id}/defer")
+    r = client.get(f"/sessions/{session_id}", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/sessions/{session_id}/regions/{regions[1].id}"
+
+
+def test_resume_routes_to_deferred_when_no_active_remain(client, service):
+    """Acknowledge region 2 (close it), defer region 1. Now only the deferred
+    region is unresolved — resume should route there even though it's deferred
+    because nothing else is left."""
+    session_id, regions = _through_reveal(client, service)
+    # Acknowledge region 2 → AWAITING_DISPOSITION, then dispose to CLOSED.
+    client.post(
+        f"/sessions/{session_id}/regions/{regions[1].id}/acknowledge",
+        data={"note": "trivial"},
+    )
+    client.post(
+        f"/sessions/{session_id}/regions/{regions[1].id}/dispose",
+        data={"action": "accept", "justification": ""},
+    )
+    # Defer region 1.
+    client.post(f"/sessions/{session_id}/regions/{regions[0].id}/defer")
+    # Resume should now land on the deferred region.
+    r = client.get(f"/sessions/{session_id}", follow_redirects=False)
+    assert r.headers["location"] == f"/sessions/{session_id}/regions/{regions[0].id}"
 
 
 # --- happy path: reconcile → dispose → complete ----------------------------
@@ -222,6 +334,7 @@ def test_region_surface_shows_hypothesis_reading_and_reconciliation_form(
 
 def test_full_happy_path_through_to_summary(client, service):
     session_id, regions = _through_reveal(client, service)
+    _engage_all_via_routes(client, session_id, regions)
 
     # Reconcile each region with text containing "understand" to trip the
     # FakeClosureJudge into PASS.
@@ -258,6 +371,7 @@ def test_full_happy_path_through_to_summary(client, service):
 
 def test_failing_reconciliation_lands_on_dialogue_form(client, service):
     session_id, regions = _through_reveal(client, service)
+    _engage_all_via_routes(client, session_id, regions)
     region_id = regions[0].id
     client.post(
         f"/sessions/{session_id}/regions/{region_id}/reconcile",

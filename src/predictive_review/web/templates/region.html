@@ -5,7 +5,7 @@
   <nav class="region-strip">
     {% for r in regions %}
       <a href="/sessions/{{ session_id }}/regions/{{ r.id }}"
-         class="region-chip {% if r.id == region.id %}is-active{% endif %} status-{{ r.status.value }}">
+         class="region-chip {% if r.id == region.id %}is-active{% endif %} status-{{ r.status.value }} {% if r.is_deferred %}is-deferred{% endif %}">
         {{ r.ordinal + 1 }}
         {% if r.status.value == "closed" %}✓{% endif %}
         {% if r.is_deferred %}⏸{% endif %}
@@ -28,7 +28,44 @@
     </article>
 
     <article class="action-pane">
-      {% if region.status.value == "awaiting_reconciliation" %}
+      {% if region.status.value == "awaiting_reveal_choice" %}
+        <h2>Choose your engagement</h2>
+        {% if region.is_deferred %}
+          <p class="lede deferred-note">
+            You previously deferred this region. Pick again — engage,
+            acknowledge, or defer to come back later.
+          </p>
+        {% else %}
+          <p class="lede">
+            You've seen your hypothesis and the model's reading. Choose how
+            deep to go on this region.
+          </p>
+        {% endif %}
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/engage">
+          <button type="submit" class="primary choice-btn">
+            <strong>Engage</strong> — write a reconciliation, run the judge
+          </button>
+        </form>
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/acknowledge">
+          <label>
+            <span>Note (required)</span>
+            <input type="text" name="note" required
+                   placeholder="why are you not engaging deeply? e.g. routine null-check">
+          </label>
+          <button type="submit" class="choice-btn">
+            <strong>Acknowledge</strong> — close without engaging
+          </button>
+        </form>
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/defer">
+          <button type="submit" class="choice-btn">
+            <strong>Defer</strong> — revisit this region later
+          </button>
+        </form>
+
+      {% elif region.status.value == "awaiting_reconciliation" %}
         <h2>Reconciliation</h2>
         <p class="lede">
           Write a reconciliation in your own words — what your hypothesis
