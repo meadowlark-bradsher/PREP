@@ -25,6 +25,7 @@ from ..sessions.errors import InvalidPhaseTransition, InvalidRegionStatus
 from ..sessions.service import RegionSnapshot, SessionService
 from ..storage.models import (
     DispositionStatus,
+    OverrideReason,
     ReconciliationLayout,
     RegionStatus,
     SessionPhase,
@@ -330,6 +331,35 @@ def register_routes(app: FastAPI) -> None:
         service.submit_revised_teach_back(
             session_id=session_id, region_id=region_id, body=body.strip()
         )
+        return RedirectResponse(
+            url=f"/sessions/{session_id}/regions/{region_id}", status_code=303
+        )
+
+    @app.post("/sessions/{session_id}/regions/{region_id}/override")
+    def submit_override(
+        session_id: str,
+        region_id: str,
+        reason: str = Form(...),
+        service: SessionService = Depends(get_service),
+    ) -> RedirectResponse:
+        """Engineer overrides the engagement demand. Records value /
+        toil / difficulty as structured signal — no model consumes it
+        in v1.5, but a future calibration system will."""
+        try:
+            reason_enum = OverrideReason(reason)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown override reason: {reason!r}",
+            )
+        try:
+            service.submit_override(
+                session_id=session_id,
+                region_id=region_id,
+                reason=reason_enum,
+            )
+        except InvalidRegionStatus as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return RedirectResponse(
             url=f"/sessions/{session_id}/regions/{region_id}", status_code=303
         )

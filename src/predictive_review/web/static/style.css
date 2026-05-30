@@ -181,7 +181,19 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 }
 .exit-option h3 { font-size: 0.95rem; color: var(--fg); text-transform: none; letter-spacing: 0; margin-top: 0; }
 .exit-option .lede { font-size: 0.9rem; margin: 0.25rem 0 0.75rem; }
-.exit-override-placeholder { opacity: 0.6; }
+.override-choices { display: flex; flex-direction: column; gap: 0.5rem; }
+.override-btn {
+  text-align: left; padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--rule); border-radius: 4px;
+  cursor: pointer;
+}
+.override-btn:hover { border-color: var(--accent); background: #f6f8fb; }
+.override-btn strong {
+  display: block; color: var(--accent-strong); font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+.override-btn span { color: var(--muted); font-size: 0.9rem; }
 
 .choice-btn { width: 100%; text-align: left; margin: 0.5rem 0; padding: 0.75rem 1rem; }
 .deferred-note { font-style: italic; color: var(--warn-fg); }

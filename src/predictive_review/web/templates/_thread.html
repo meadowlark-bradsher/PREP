@@ -64,14 +64,31 @@
       </form>
     </article>
 
-    <article class="exit-option exit-override-placeholder">
-      <h3>Not worth this depth</h3>
+    <article class="exit-option">
+      <h3>Not worth this depth — override the engagement demand</h3>
       <p class="lede">
         Use this if you accept the reading but the coverage being demanded
-        exceeds what understanding this region is worth.
-        <em>(Structured override taxonomy lands in the next commit.)</em>
+        exceeds what understanding this region is worth. Pick the axis that
+        best describes why.
       </p>
-      <button type="button" disabled>Override engagement demand</button>
+      <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/override" class="override-choices">
+        <button type="submit" name="reason" value="value" class="override-btn">
+          <strong>Value</strong>
+          <span>This isn't worth engaging with at this depth. The stakes of
+            understanding it are low.</span>
+        </button>
+        <button type="submit" name="reason" value="toil" class="override-btn">
+          <strong>Toil</strong>
+          <span>Too much volume to cover for what it's worth. Many small
+            interacting points, none individually important.</span>
+        </button>
+        <button type="submit" name="reason" value="difficulty" class="override-btn">
+          <strong>Difficulty</strong>
+          <span>Harder than I want to engage with right now. Not that it
+            doesn't matter, but the engagement cost is too high for this
+            session.</span>
+        </button>
+      </form>
     </article>
   </details>
 </div>

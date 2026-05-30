@@ -497,6 +497,97 @@ def test_disagree_exit_records_optional_reason(client, service):
     assert "two distinct call sites" in region.disagreement_reason
 
 
+# --- structured override (value / toil / difficulty) ----------------------
+
+
+def test_dialogue_surface_shows_three_override_buttons(client, service):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.get(f"/sessions/{session_id}/regions/{region_id}")
+    # All three taxonomy axes have their own button.
+    assert 'name="reason" value="value"' in r.text
+    assert 'name="reason" value="toil"' in r.text
+    assert 'name="reason" value="difficulty"' in r.text
+    # Each axis has its explanatory description visible.
+    assert "stakes" in r.text  # value description
+    assert "interacting points" in r.text  # toil description
+    assert "engagement cost" in r.text  # difficulty description
+
+
+@pytest.mark.parametrize(
+    "reason_str, expected_value",
+    [("value", "value"), ("toil", "toil"), ("difficulty", "difficulty")],
+)
+def test_override_route_records_each_reason(
+    client, service, reason_str, expected_value
+):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/override",
+        data={"reason": reason_str},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    region = service.get_region(session_id, region_id)
+    assert region.status.value == "awaiting_disposition"
+    assert region.closure_mode.value == "engineer_overrode"
+    assert region.override_reason.value == expected_value
+
+
+def test_override_route_rejects_unknown_reason(client, service):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/override",
+        data={"reason": "vibes"},
+    )
+    assert r.status_code == 400
+    # State unchanged.
+    region = service.get_region(session_id, region_id)
+    assert region.status.value == "in_dialogue"
+
+
+def test_override_route_rejects_when_region_not_in_dialogue(client, service):
+    """Overriding only makes sense mid-dialogue, after a judge denial.
+    A region not in IN_DIALOGUE should be refused at the service layer."""
+    session_id, regions = _through_reveal(client, service)
+    # Region is at AWAITING_REVEAL_CHOICE, not IN_DIALOGUE.
+    r = client.post(
+        f"/sessions/{session_id}/regions/{regions[0].id}/override",
+        data={"reason": "value"},
+    )
+    assert r.status_code == 400
+
+
+def test_override_reason_surfaces_in_session_summary(client, service):
+    """Drive through to completion via an override and verify the reason
+    is visible on the summary page — the deliverable the calibration
+    system would consume."""
+    session_id, region_id = _into_dialogue(client, service)
+    client.post(
+        f"/sessions/{session_id}/regions/{region_id}/override",
+        data={"reason": "toil"},
+    )
+    client.post(
+        f"/sessions/{session_id}/regions/{region_id}/dispose",
+        data={"action": "accept", "justification": ""},
+    )
+    # The other region needs to close too for the session to complete.
+    # _into_dialogue already engaged it; reconcile and dispose through.
+    other = next(r for r in service.list_regions(session_id) if r.id != region_id)
+    client.post(
+        f"/sessions/{session_id}/regions/{other.id}/reconcile",
+        data={"body": "I understand"},  # PASS via FakeClosureJudge policy
+    )
+    client.post(
+        f"/sessions/{session_id}/regions/{other.id}/dispose",
+        data={"action": "accept", "justification": ""},
+    )
+
+    r = client.get(f"/sessions/{session_id}/summary")
+    assert r.status_code == 200
+    assert "Override reason" in r.text
+    assert "toil" in r.text
+
+
 # --- 404s ------------------------------------------------------------------
 
 
