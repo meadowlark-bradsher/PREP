@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Region {{ region.ordinal + 1 }} — Predictive Review{% endblock %}
+{% block content %}
+<section class="region">
+  <nav class="region-strip">
+    {% for r in regions %}
+      <a href="/sessions/{{ session_id }}/regions/{{ r.id }}"
+         class="region-chip {% if r.id == region.id %}is-active{% endif %} status-{{ r.status.value }}">
+        {{ r.ordinal + 1 }}
+        {% if r.status.value == "closed" %}✓{% endif %}
+        {% if r.is_deferred %}⏸{% endif %}
+      </a>
+    {% endfor %}
+  </nav>
+
+  <h1>{{ region.structural_label }}</h1>
+
+  <div class="two-pane">
+    <article class="reading-pane">
+      <h2>Hunk</h2>
+      <pre class="hunk"><code>{{ region.hunk_text }}</code></pre>
+
+      <h2>Your locked hypothesis</h2>
+      <div class="locked-text">{{ hypothesis }}</div>
+
+      <h2>Model's reading</h2>
+      <div class="reading">{{ reading }}</div>
+    </article>
+
+    <article class="action-pane">
+      {% if region.status.value == "awaiting_reconciliation" %}
+        <h2>Reconciliation</h2>
+        <p class="lede">
+          Write a reconciliation in your own words — what your hypothesis
+          got right, what it missed, your current understanding of the
+          choice.
+        </p>
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/reconcile">
+          <textarea name="body" rows="10" required>{{ reconciliation }}</textarea>
+          <button type="submit" class="primary">Submit reconciliation</button>
+        </form>
+
+      {% elif region.status.value == "in_dialogue" %}
+        <h2>Dialogue</h2>
+        {% if latest_fail %}
+          <div class="judge-fail">
+            <strong>Judge denied closure.</strong>
+            <p>Not yet covered: {{ latest_fail.missing_aspects }}</p>
+          </div>
+        {% endif %}
+
+        <ol class="thread">
+          {% for t in turns %}
+            <li class="turn turn-{{ t.role.value }}">
+              <strong>{{ t.role.value }}</strong>
+              <div>{{ t.body }}</div>
+            </li>
+          {% endfor %}
+        </ol>
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/dialogue">
+          <label>
+            <span>Message to the model</span>
+            <textarea name="message" rows="4" required></textarea>
+          </label>
+          <button type="submit">Send</button>
+        </form>
+
+        <details class="dialogue-exits">
+          <summary>Or close the dialogue</summary>
+
+          <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/revise">
+            <label>
+              <span>Revise your teach-back and re-run the judge</span>
+              <textarea name="body" rows="5"></textarea>
+            </label>
+            <button type="submit">Submit revised teach-back</button>
+          </form>
+
+          <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/disagree">
+            <label>
+              <span>Disagree with the reading (optional reason)</span>
+              <textarea name="reason" rows="3"></textarea>
+            </label>
+            <button type="submit">Close with disagreement</button>
+          </form>
+        </details>
+
+      {% elif region.status.value == "awaiting_disposition" %}
+        <h2>Disposition</h2>
+        <p class="lede">
+          The reconciliation loop is closed. Now: what's your decision about
+          the actual code change?
+        </p>
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/dispose">
+          <fieldset>
+            <legend>What do you want to do with this region's code?</legend>
+            <button type="submit" name="action" value="accept" class="primary">
+              Accept as-is
+            </button>
+            <label>
+              <span>Or flag for redesign (justification required)</span>
+              <textarea name="justification" rows="3"></textarea>
+            </label>
+            <button type="submit" name="action" value="flag">Flag for redesign</button>
+          </fieldset>
+        </form>
+
+      {% elif region.status.value == "closed" %}
+        <h2>Closed</h2>
+        <p>This region is closed. <a href="/sessions/{{ session_id }}">Continue session →</a></p>
+      {% else %}
+        <p>Region state: {{ region.status.value }}</p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+{% endblock %}

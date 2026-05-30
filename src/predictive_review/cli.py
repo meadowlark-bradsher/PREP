@@ -58,6 +58,23 @@ def init_db(alembic_config: str) -> None:
     click.echo(f"applied migrations using {cfg_path}")
 
 
+@cli.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8000, show_default=True, type=int)
+@click.option("--reload/--no-reload", default=False, help="Enable uvicorn auto-reload (development).")
+def serve(host: str, port: int, reload: bool) -> None:
+    """Run the FastAPI web UI."""
+    import uvicorn
+
+    uvicorn.run(
+        "predictive_review.web.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
 @cli.command("run")
 @click.option(
     "--diff",

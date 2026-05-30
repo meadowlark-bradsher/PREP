@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Start a session — Predictive Review{% endblock %}
+{% block content %}
+<section class="launcher">
+  <h1>Start a session</h1>
+  <p class="lede">Provide a diff. The selector will pick 2–4 regions for predictive review.</p>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/launch">
+    <label>
+      <span>Engineer identifier</span>
+      <input type="text" name="engineer" value="default" autocomplete="off">
+    </label>
+
+    <fieldset class="diff-source">
+      <legend>Diff source (fill exactly one)</legend>
+
+      <label>
+        <span>Paste a unified diff</span>
+        <textarea name="diff_text" rows="10" placeholder="diff --git a/foo b/foo&#10;..."></textarea>
+      </label>
+
+      <label>
+        <span>Or a commit SHA — runs <code>git show &lt;sha&gt;</code></span>
+        <input type="text" name="commit" placeholder="HEAD, HEAD~1, abc123..." autocomplete="off">
+      </label>
+
+      <label>
+        <span>Or a range — runs <code>git diff &lt;range&gt;</code></span>
+        <input type="text" name="git_range" placeholder="main..HEAD" autocomplete="off">
+      </label>
+    </fieldset>
+
+    <button type="submit" class="primary">Submit and select regions</button>
+  </form>
+</section>
+{% endblock %}

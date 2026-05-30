@@ -89,6 +89,41 @@ class DialogueTurnResult:
 
 
 @dataclass(frozen=True)
+class SessionSnapshot:
+    """Read-only view of a session header for callers outside the service."""
+
+    id: str
+    current_phase: "SessionPhase"
+    engineer_identifier: str
+    selector_name: str
+    selector_version: str
+    layout: "ReconciliationLayout"
+    source_commit: str | None
+    source_range: str | None
+
+
+@dataclass(frozen=True)
+class DialogueTurnSnapshot:
+    role: "TurnRole"
+    body: str
+    turn_index: int
+
+
+@dataclass(frozen=True)
+class ClosureAttemptSnapshot:
+    attempt_number: int
+    teach_back_statement: str
+    verdict: "ClosureVerdict"
+    missing_aspects: str | None
+
+
+@dataclass(frozen=True)
+class DispositionSnapshot:
+    status: "DispositionStatus"
+    justification: str | None
+
+
+@dataclass(frozen=True)
 class RegionSnapshot:
     """Read-only view of a region for callers outside the service.
 
@@ -134,10 +169,15 @@ class SessionService:
         engineer_identifier: str,
         selector_name: str,
         layout: ReconciliationLayout,
+        source_commit: str | None = None,
+        source_range: str | None = None,
     ) -> str:
         """Parse the diff, run the selector, persist session + regions.
 
         Returns the new session id; the session is left in HYPOTHESIS phase.
+        source_commit / source_range carry the diff's git provenance when
+        the diff came from `git show <sha>` or `git diff <range>`; both
+        are None when the diff was pasted.
         """
         diff = parse_diff(diff_text)
         selector = self._selectors.get(selector_name)
@@ -152,6 +192,8 @@ class SessionService:
             session = Session(
                 engineer_id=engineer.id,
                 diff_text=diff_text,
+                source_commit=source_commit,
+                source_range=source_range,
                 selector_name=selector.name,
                 selector_version=selector.version,
                 reconciliation_layout=layout,
@@ -532,6 +574,88 @@ class SessionService:
                 )
                 for r in session.regions
             ]
+
+    def get_session(self, session_id: str) -> SessionSnapshot | None:
+        with self._session_factory() as db:
+            session = db.get(Session, session_id)
+            if session is None:
+                return None
+            engineer = db.get(Engineer, session.engineer_id)
+            return SessionSnapshot(
+                id=session.id,
+                current_phase=session.current_phase,
+                engineer_identifier=engineer.identifier if engineer else "",
+                selector_name=session.selector_name,
+                selector_version=session.selector_version,
+                layout=session.reconciliation_layout,
+                source_commit=session.source_commit,
+                source_range=session.source_range,
+            )
+
+    def get_region(
+        self, session_id: str, region_id: str
+    ) -> RegionSnapshot | None:
+        for r in self.list_regions(session_id):
+            if r.id == region_id:
+                return r
+        return None
+
+    def get_reconciliation(self, region_id: str) -> str | None:
+        with self._session_factory() as db:
+            stmt = select(Reconciliation).where(
+                Reconciliation.region_id == region_id
+            )
+            row = db.execute(stmt).scalar_one_or_none()
+            return row.body if row else None
+
+    def get_dialogue_turns(
+        self, region_id: str
+    ) -> list[DialogueTurnSnapshot]:
+        with self._session_factory() as db:
+            turns = self._fetch_dialogue_turns(db, region_id)
+            return [
+                DialogueTurnSnapshot(
+                    role=_orm_to_turn_role(t.role),
+                    body=t.body,
+                    turn_index=t.turn_index,
+                )
+                for t in turns
+            ]
+
+    def get_closure_attempts(
+        self, region_id: str
+    ) -> list[ClosureAttemptSnapshot]:
+        with self._session_factory() as db:
+            stmt = (
+                select(ClosureAttempt)
+                .where(ClosureAttempt.region_id == region_id)
+                .order_by(ClosureAttempt.attempt_number.asc())
+            )
+            return [
+                ClosureAttemptSnapshot(
+                    attempt_number=a.attempt_number,
+                    teach_back_statement=a.teach_back_statement,
+                    verdict=a.verdict,
+                    missing_aspects=a.missing_aspects,
+                )
+                for a in db.execute(stmt).scalars()
+            ]
+
+    def get_disposition(
+        self, region_id: str
+    ) -> DispositionSnapshot | None:
+        with self._session_factory() as db:
+            stmt = select(Disposition).where(
+                Disposition.region_id == region_id
+            )
+            row = db.execute(stmt).scalar_one_or_none()
+            return (
+                DispositionSnapshot(
+                    status=row.status, justification=row.justification
+                )
+                if row
+                else None
+            )
 
     def get_reading(self, region_id: str) -> str | None:
         with self._session_factory() as db:
