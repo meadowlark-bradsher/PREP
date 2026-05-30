@@ -158,3 +158,34 @@ def test_strip_to_diff_passes_through_clean_git_diff_output() -> None:
 def test_strip_to_diff_raises_when_no_diff_present() -> None:
     with pytest.raises(click.ClickException, match="no diff"):
         _strip_to_diff("commit abc\nAuthor: x\n\nempty commit\n")
+
+
+# --- v1.5 CLI surface: option parsing + help text -------------------------
+
+
+def test_run_help_advertises_v1_5_options() -> None:
+    """`prep run --help` should list --threshold and explain the
+    three-way choice. CliRunner avoids actually invoking the run flow."""
+    from click.testing import CliRunner
+
+    from predictive_review.cli import cli
+
+    result = CliRunner().invoke(cli, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--threshold" in result.output
+    assert "load_bearing_only" in result.output
+    assert "engage" in result.output and "acknowledge" in result.output and "defer" in result.output
+
+
+def test_run_rejects_invalid_threshold() -> None:
+    from click.testing import CliRunner
+
+    from predictive_review.cli import cli
+
+    result = CliRunner().invoke(
+        cli,
+        ["run", "--threshold", "vibes"],
+        input="",  # stdin
+    )
+    assert result.exit_code != 0
+    assert "Invalid value for '--threshold'" in result.output

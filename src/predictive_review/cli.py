@@ -22,6 +22,8 @@ from .judge import JudgeOutcome
 from .sessions.service import RegionSnapshot, SessionService
 from .storage.models import (
     DispositionStatus,
+    EngagementThreshold,
+    OverrideReason,
     ReconciliationLayout,
     RegionStatus,
 )
@@ -114,6 +116,16 @@ def serve(host: str, port: int, reload: bool) -> None:
     show_default=True,
     help="Reconciliation layout. 'inline' shows the hunk in the reconciliation editor.",
 )
+@click.option(
+    "--threshold",
+    type=click.Choice(["load_bearing_only", "default", "thorough"]),
+    default="default",
+    show_default=True,
+    help=(
+        "Session-level engagement threshold. Modulates selector "
+        "aggressiveness and judge coverage bar."
+    ),
+)
 def run(
     diff_source,
     commit_sha: str | None,
@@ -121,11 +133,17 @@ def run(
     engineer: str,
     selector: str,
     layout: str,
+    threshold: str,
 ) -> None:
     """Walk one Predictive Review session interactively, end-to-end.
 
     Diff source is one of: --diff (file or stdin), --commit (git show), or
     --range (git diff). With none of these, reads from stdin.
+
+    After reveal, each region prompts a three-way choice: engage (full
+    reconciliation), acknowledge (close without engaging, requires a one-line
+    note), or defer (revisit later). Deferred regions block session
+    completion until resolved.
     """
     diff_text = _resolve_diff_text(diff_source, commit_sha, git_range)
     if not diff_text.strip():
@@ -137,6 +155,9 @@ def run(
         if layout == "inline"
         else ReconciliationLayout.NO_HUNK
     )
+    threshold_enum = EngagementThreshold(threshold)
+    source_commit = commit_sha or None
+    source_range = git_range or None
 
     click.echo("Submitting diff and selecting regions...")
     session_id = service.submit(
@@ -144,6 +165,9 @@ def run(
         engineer_identifier=engineer,
         selector_name=selector,
         layout=layout_enum,
+        engagement_threshold=threshold_enum,
+        source_commit=source_commit,
+        source_range=source_range,
     )
     regions = service.list_regions(session_id)
     click.echo(f"Session {session_id}")
@@ -156,10 +180,16 @@ def run(
     click.echo("\nLocking hypotheses and generating readings (this calls the LLM)...")
     service.lock_and_reveal(session_id=session_id)
 
-    for region in service.list_regions(session_id):
-        _run_region_reconciliation(service, session_id, region, layout_enum)
+    _run_v1_5_main_loop(service, session_id, layout_enum)
 
-    click.secho(f"\nSession {session_id} complete.", fg="green")
+    final = service.get_session(session_id)
+    if final and final.current_phase.value == "complete":
+        click.secho(f"\nSession {session_id} complete.", fg="green")
+    else:
+        click.secho(
+            f"\nSession {session_id} left incomplete (regions remain unresolved).",
+            fg="yellow",
+        )
 
 
 # --- diff sourcing -------------------------------------------------------
@@ -278,6 +308,146 @@ def _parse_hypotheses(text: str, n: int) -> list[str]:
     return out
 
 
+# --- v1.5 main loop ------------------------------------------------------
+
+
+def _run_v1_5_main_loop(
+    service: SessionService,
+    session_id: str,
+    layout: ReconciliationLayout,
+) -> None:
+    """Drive every region from AWAITING_REVEAL_CHOICE through to CLOSED,
+    deferring to the engineer's three-way choice per region.
+
+    Order:
+      1. Active (not-CLOSED, not-deferred) regions in ordinal order.
+      2. After the active pass, prompt to revisit deferred regions.
+      3. Engineer can leave deferred regions unresolved by declining
+         to revisit; the session remains incomplete.
+    """
+    while True:
+        snaps = service.list_regions(session_id)
+        active = [
+            s for s in snaps
+            if s.status is not RegionStatus.CLOSED and not s.is_deferred
+        ]
+        if active:
+            for snap in active:
+                _walk_one_region(service, session_id, snap.id, layout)
+            continue
+
+        deferred = [s for s in service.list_regions(session_id) if s.is_deferred]
+        if not deferred:
+            return
+
+        click.echo("")
+        click.secho(
+            f"{len(deferred)} region(s) deferred — still to resolve:",
+            fg="yellow",
+        )
+        for s in deferred:
+            click.echo(f"  {s.ordinal + 1}. {s.structural_label}")
+        if not click.confirm("Revisit them now?", default=True):
+            return
+        for snap in deferred:
+            _walk_one_region(service, session_id, snap.id, layout)
+
+
+def _walk_one_region(
+    service: SessionService,
+    session_id: str,
+    region_id: str,
+    layout: ReconciliationLayout,
+) -> None:
+    """Drive a single region across whatever sub-state it's in.
+
+    The region state can change inside each branch; we re-read after each
+    transition. Returns early when the region defers or closes.
+    """
+    region = service.get_region(session_id, region_id)
+    if region is None or region.status is RegionStatus.CLOSED:
+        return
+
+    if region.status is RegionStatus.AWAITING_REVEAL_CHOICE:
+        choice = _run_reveal_choice(service, session_id, region)
+        if choice == "defer":
+            return
+        region = service.get_region(session_id, region_id)
+        if region is None:
+            return
+
+    if region.status is RegionStatus.AWAITING_RECONCILIATION:
+        _run_region_reconciliation(service, session_id, region, layout)
+        region = service.get_region(session_id, region_id)
+        if region is None:
+            return
+
+    if region.status is RegionStatus.AWAITING_DISPOSITION:
+        _prompt_disposition(service, session_id, region)
+
+
+def _print_region_header(region: RegionSnapshot) -> None:
+    click.echo("")
+    click.secho("=" * 60, fg="cyan")
+    click.secho(
+        f"Region {region.ordinal + 1}: {region.structural_label}",
+        fg="cyan",
+        bold=True,
+    )
+    click.secho("=" * 60, fg="cyan")
+
+
+def _run_reveal_choice(
+    service: SessionService,
+    session_id: str,
+    region: RegionSnapshot,
+) -> str:
+    """Three-way choice prompt. Returns one of 'engage' / 'acknowledge' / 'defer'."""
+    _print_region_header(region)
+
+    reading = service.get_reading(region.id) or "(no reading available)"
+    hypothesis = service.get_locked_hypothesis(region.id) or "(none recorded)"
+
+    click.secho("\nYour locked hypothesis:", bold=True)
+    click.echo(hypothesis)
+    click.secho("\nModel's reading:", bold=True)
+    click.echo(reading)
+
+    if region.is_deferred:
+        click.secho(
+            "\n(You previously deferred this region.)",
+            fg="yellow",
+        )
+
+    click.echo("")
+    choice = click.prompt(
+        "How do you want to engage? (e)ngage / (a)cknowledge / (d)efer",
+        type=click.Choice(["e", "a", "d"], case_sensitive=False),
+    )
+    if choice == "e":
+        service.engage_region(session_id=session_id, region_id=region.id)
+        return "engage"
+    if choice == "a":
+        while True:
+            note = click.prompt(
+                "Acknowledgment note (one line, required)", default=""
+            ).strip()
+            if note:
+                break
+            click.secho("Note is required for acknowledge.", fg="yellow")
+        service.acknowledge_region(
+            session_id=session_id, region_id=region.id, note=note
+        )
+        return "acknowledge"
+    # defer
+    service.defer_region(session_id=session_id, region_id=region.id)
+    click.secho(
+        "Region deferred. You'll be prompted to revisit it after the main pass.",
+        fg="yellow",
+    )
+    return "defer"
+
+
 # --- reconciliation + dialogue ------------------------------------------
 
 
@@ -287,22 +457,18 @@ def _run_region_reconciliation(
     region: RegionSnapshot,
     layout: ReconciliationLayout,
 ) -> None:
-    click.echo("")
-    click.secho("=" * 60, fg="cyan")
-    click.secho(
-        f"Region {region.ordinal + 1}: {region.structural_label}", fg="cyan", bold=True
-    )
-    click.secho("=" * 60, fg="cyan")
+    """Open the reconciliation editor and submit to the judge.
 
+    The region header + reading were already printed by
+    _run_reveal_choice; this function just handles the engaged-path
+    write step and any failing-judge dialogue.
+    """
     reading = service.get_reading(region.id)
     hypothesis = service.get_locked_hypothesis(region.id)
     if reading is None or hypothesis is None:
         raise click.ClickException(
             f"region {region.id} missing reading or hypothesis; cannot reconcile"
         )
-
-    click.echo("\nReading:")
-    click.echo(reading)
 
     template = _build_reconciliation_template(region, hypothesis, reading, layout)
     edited = click.edit(template, extension=".md")
@@ -324,8 +490,6 @@ def _run_region_reconciliation(
     else:
         click.secho(f"Closure: FAIL — {result.missing_aspects}", fg="yellow")
         _run_dialogue_loop(service, session_id, region)
-
-    _prompt_disposition(service, session_id, region)
 
 
 _RECONCILIATION_PLACEHOLDER = "(write your reconciliation here)"
@@ -381,9 +545,10 @@ def _run_dialogue_loop(
     region: RegionSnapshot,
 ) -> None:
     click.echo("\nDialogue with the model. Commands:")
-    click.echo("  :done      revised teach-back (opens editor, re-runs judge)")
-    click.echo("  :disagree  close this region with explicit disagreement")
-    click.echo("  :edit      open editor for a multi-line dialogue message")
+    click.echo("  :try-again  open editor for a revised teach-back, re-run judge")
+    click.echo("  :disagree   close this region — the reading itself is wrong")
+    click.echo("  :override   close this region — not worth this depth (value/toil/difficulty)")
+    click.echo("  :edit       open editor for a multi-line dialogue message")
     click.echo("")
 
     while True:
@@ -397,14 +562,40 @@ def _run_dialogue_loop(
         if not msg:
             continue
 
-        if msg == ":done":
+        if msg in (":try-again", ":done"):  # :done kept as alias for the old habit
             if _submit_revised_teach_back(service, session_id, region):
                 return
         elif msg == ":disagree":
+            reason = click.prompt(
+                "Reason for disagreement (optional; press Enter to skip)",
+                default="",
+                show_default=False,
+            ).strip()
             service.close_with_disagreement(
-                session_id=session_id, region_id=region.id
+                session_id=session_id,
+                region_id=region.id,
+                reason=reason or None,
             )
             click.secho("Region closed with disagreement.", fg="yellow")
+            return
+        elif msg == ":override":
+            axis = click.prompt(
+                "Which axis? (v)alue / (t)oil / (d)ifficulty",
+                type=click.Choice(["v", "t", "d"], case_sensitive=False),
+            )
+            reason_enum = {
+                "v": OverrideReason.VALUE,
+                "t": OverrideReason.TOIL,
+                "d": OverrideReason.DIFFICULTY,
+            }[axis]
+            service.submit_override(
+                session_id=session_id,
+                region_id=region.id,
+                reason=reason_enum,
+            )
+            click.secho(
+                f"Region closed with override ({reason_enum.value}).", fg="yellow"
+            )
             return
         elif msg == ":edit":
             edited = click.edit("(write your message here)", extension=".md")
