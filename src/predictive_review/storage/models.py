@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -65,14 +66,49 @@ class DispositionStatus(str, enum.Enum):
 class ClosureMode(str, enum.Enum):
     """How a region reached AWAITING_DISPOSITION.
 
-    Set when the region transitions out of the reconciliation/dialogue
-    loop. JUDGE_PASSED means the closure judge approved the engineer's
-    teach-back. ENGINEER_DISAGREED means the engineer chose to close
-    over the judge's objection (a recorded override, not a failure).
+    Four ways a region can close in v1.5:
+      - JUDGE_PASSED: the closure judge approved the engineer's teach-back.
+      - ENGINEER_DISAGREED: the engineer thinks the reading itself is wrong.
+        A `regions.disagreement_reason` may carry free-text explanation.
+      - ACKNOWLEDGED: the engineer chose at reveal not to engage deeply.
+        `regions.acknowledgment_note` carries the required one-line note.
+      - ENGINEER_OVERRODE: the engineer accepts the reading but judges the
+        coverage being demanded exceeds what the region is worth to them.
+        `regions.override_reason` records value/toil/difficulty.
     """
 
     JUDGE_PASSED = "judge_passed"
     ENGINEER_DISAGREED = "engineer_disagreed"
+    ACKNOWLEDGED = "acknowledged"
+    ENGINEER_OVERRODE = "engineer_overrode"
+
+
+class EngagementThreshold(str, enum.Enum):
+    """Session-level coarse knob for selector aggressiveness and judge strictness.
+
+    Set at launch. Flows into selector and judge prompts as a template
+    variable. LOAD_BEARING_ONLY surfaces fewer regions and applies a
+    lighter coverage bar; THOROUGH surfaces more and applies a stricter
+    bar; DEFAULT sits in the middle.
+    """
+
+    LOAD_BEARING_ONLY = "load_bearing_only"
+    DEFAULT = "default"
+    THOROUGH = "thorough"
+
+
+class OverrideReason(str, enum.Enum):
+    """Why the engineer overrode the engagement demand on a region.
+
+    Three orthogonal axes that produce the same surface symptom
+    ("I don't want to engage with this") but mean different things in
+    the artifact. Collected for future calibration; no model consumes
+    them in v1.5.
+    """
+
+    VALUE = "value"
+    TOIL = "toil"
+    DIFFICULTY = "difficulty"
 
 
 class ClosureVerdict(str, enum.Enum):
@@ -106,10 +142,22 @@ class Session(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     engineer_id: Mapped[str] = mapped_column(ForeignKey("engineers.id"))
     diff_text: Mapped[str] = mapped_column(Text)
+    # Provenance: populated when the diff came from --commit or --range,
+    # nullable when the diff was pasted or piped from stdin.
+    source_commit: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    source_range: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     selector_name: Mapped[str] = mapped_column(String(64))
     selector_version: Mapped[str] = mapped_column(String(32))
     reconciliation_layout: Mapped[ReconciliationLayout] = mapped_column(
         Enum(ReconciliationLayout)
+    )
+    engagement_threshold: Mapped[EngagementThreshold] = mapped_column(
+        Enum(EngagementThreshold),
+        default=EngagementThreshold.DEFAULT,
+        # SQLAlchemy's Enum type stores the enum NAME (uppercase) by default,
+        # not the value. server_default must match — emitting the lowercase
+        # .value would violate the CHECK constraint on backfilled rows.
+        server_default=EngagementThreshold.DEFAULT.name,
     )
     current_phase: Mapped[SessionPhase] = mapped_column(
         Enum(SessionPhase), default=SessionPhase.SUBMITTED
@@ -162,6 +210,24 @@ class Region(Base):
     )
     closure_mode: Mapped[Optional[ClosureMode]] = mapped_column(
         Enum(ClosureMode), nullable=True
+    )
+    # Override reason — populated only when closure_mode = ENGINEER_OVERRODE.
+    # Records which of value/toil/difficulty drove the engineer's decision
+    # to override the engagement demand on this region.
+    override_reason: Mapped[Optional[OverrideReason]] = mapped_column(
+        Enum(OverrideReason), nullable=True
+    )
+    # Free-text reason — populated only when closure_mode = ENGINEER_DISAGREED.
+    # The engineer's account of why the reading itself is wrong.
+    disagreement_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # One-line note — required when closure_mode = ACKNOWLEDGED. The
+    # engineer's brief explanation of why they chose not to engage deeply.
+    acknowledgment_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Deferral is a region property, not a session phase. A region with
+    # is_deferred = True blocks session completion until the engineer
+    # revisits it and picks engage/acknowledge from the three-way choice.
+    is_deferred: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
