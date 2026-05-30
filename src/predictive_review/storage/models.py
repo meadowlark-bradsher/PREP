@@ -45,6 +45,20 @@ class SessionPhase(str, enum.Enum):
 
 
 class RegionStatus(str, enum.Enum):
+    """Region-level lifecycle.
+
+    AWAITING_HYPOTHESIS is the initial state — the region exists but
+    the engineer hasn't written a hypothesis yet. (The MVP used
+    AWAITING_RECONCILIATION as the initial state, which was a misnomer.)
+
+    AWAITING_REVEAL_CHOICE is the v1.5 state between lock_and_reveal
+    and the three-way choice. The engineer sees their locked hypothesis
+    + the reading + three buttons (engage / acknowledge / defer) before
+    being routed onward.
+    """
+
+    AWAITING_HYPOTHESIS = "awaiting_hypothesis"
+    AWAITING_REVEAL_CHOICE = "awaiting_reveal_choice"
     AWAITING_RECONCILIATION = "awaiting_reconciliation"
     IN_DIALOGUE = "in_dialogue"
     AWAITING_DISPOSITION = "awaiting_disposition"
@@ -206,7 +220,7 @@ class Region(Base):
     hunk: Mapped[dict] = mapped_column(JSON)
     selector_rationale: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[RegionStatus] = mapped_column(
-        Enum(RegionStatus), default=RegionStatus.AWAITING_RECONCILIATION
+        Enum(RegionStatus), default=RegionStatus.AWAITING_HYPOTHESIS
     )
     closure_mode: Mapped[Optional[ClosureMode]] = mapped_column(
         Enum(ClosureMode), nullable=True

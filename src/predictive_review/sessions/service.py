@@ -56,6 +56,7 @@ from ..storage.models import (
     DispositionStatus,
     Engineer,
     HypothesisRevision,
+    OverrideReason,
     PhaseEvent,
     Reading,
     Reconciliation,
@@ -102,6 +103,10 @@ class RegionSnapshot:
     hunk_text: str
     status: "RegionStatus"
     closure_mode: "ClosureMode | None"
+    is_deferred: bool = False
+    override_reason: "OverrideReason | None" = None
+    disagreement_reason: str | None = None
+    acknowledgment_note: str | None = None
 
 
 class SessionService:
@@ -166,7 +171,7 @@ class SessionService:
                         structural_label=region_view.structural_label,
                         hunk=asdict(region_view.hunk),
                         selector_rationale=dict(region_view.selector_rationale),
-                        status=RegionStatus.AWAITING_RECONCILIATION,
+                        status=RegionStatus.AWAITING_HYPOTHESIS,
                     )
                 )
 
@@ -235,6 +240,8 @@ class SessionService:
                         prompt_version=reading_result.prompt_version,
                     )
                 )
+                # v1.5: regions land at the three-way choice, not reconciliation
+                region.status = RegionStatus.AWAITING_REVEAL_CHOICE
 
             session.current_phase = SessionPhase.RECONCILIATION
             db.add(
@@ -359,7 +366,10 @@ class SessionService:
         *,
         session_id: str,
         region_id: str,
+        reason: str | None = None,
     ) -> None:
+        """Engineer thinks the reading itself is wrong. Optional free-text
+        reason is persisted on the region for the artifact."""
         with self._session_factory() as db:
             self._get_session(db, session_id)
             region = self._get_region(db, region_id, session_id)
@@ -367,6 +377,94 @@ class SessionService:
 
             region.status = RegionStatus.AWAITING_DISPOSITION
             region.closure_mode = ClosureMode.ENGINEER_DISAGREED
+            if reason is not None and reason.strip():
+                region.disagreement_reason = reason.strip()
+            db.commit()
+
+    def submit_override(
+        self,
+        *,
+        session_id: str,
+        region_id: str,
+        reason: OverrideReason,
+    ) -> None:
+        """Engineer accepts the reading but overrides the engagement demand.
+
+        Records which of value / toil / difficulty drove the decision so a
+        future calibration system has structured signal rather than a binary.
+        """
+        with self._session_factory() as db:
+            self._get_session(db, session_id)
+            region = self._get_region(db, region_id, session_id)
+            self._require_region_status(region, RegionStatus.IN_DIALOGUE)
+
+            region.status = RegionStatus.AWAITING_DISPOSITION
+            region.closure_mode = ClosureMode.ENGINEER_OVERRODE
+            region.override_reason = reason
+            db.commit()
+
+    # --- the three-way choice (post-reveal) --------------------------------
+
+    def engage_region(self, *, session_id: str, region_id: str) -> None:
+        """Engineer chose engage — proceed to reconciliation. Clears any
+        prior deferral on this region."""
+        with self._session_factory() as db:
+            self._get_session(db, session_id)
+            region = self._get_region(db, region_id, session_id)
+            self._require_region_status(region, RegionStatus.AWAITING_REVEAL_CHOICE)
+            region.is_deferred = False
+            region.status = RegionStatus.AWAITING_RECONCILIATION
+            db.commit()
+
+    def acknowledge_region(
+        self,
+        *,
+        session_id: str,
+        region_id: str,
+        note: str,
+    ) -> None:
+        """Engineer chose acknowledge — close without engaging deeply.
+
+        A short note is required; it is the appropriately-sized friction the
+        spec calls for, so that disengagement remains a deliberate act.
+        """
+        if not note or not note.strip():
+            raise ValueError("acknowledgment_note is required")
+        with self._session_factory() as db:
+            self._get_session(db, session_id)
+            region = self._get_region(db, region_id, session_id)
+            self._require_region_status(region, RegionStatus.AWAITING_REVEAL_CHOICE)
+            region.is_deferred = False
+            region.status = RegionStatus.AWAITING_DISPOSITION
+            region.closure_mode = ClosureMode.ACKNOWLEDGED
+            region.acknowledgment_note = note.strip()
+            db.commit()
+
+    def defer_region(self, *, session_id: str, region_id: str) -> None:
+        """Engineer chose defer — revisit this region later. Sets the
+        deferral flag; status stays at AWAITING_REVEAL_CHOICE so the
+        three-way choice re-presents on revisit."""
+        with self._session_factory() as db:
+            self._get_session(db, session_id)
+            region = self._get_region(db, region_id, session_id)
+            self._require_region_status(region, RegionStatus.AWAITING_REVEAL_CHOICE)
+            region.is_deferred = True
+            db.commit()
+
+    def revisit_deferred_region(
+        self, *, session_id: str, region_id: str
+    ) -> None:
+        """Engineer is coming back to a deferred region. Clears the flag;
+        the next action is the three-way choice again."""
+        with self._session_factory() as db:
+            self._get_session(db, session_id)
+            region = self._get_region(db, region_id, session_id)
+            self._require_region_status(region, RegionStatus.AWAITING_REVEAL_CHOICE)
+            if not region.is_deferred:
+                raise InvalidRegionStatus(
+                    f"region {region_id} is not deferred; nothing to revisit"
+                )
+            region.is_deferred = False
             db.commit()
 
     # --- phase 4: disposition ----------------------------------------------
@@ -396,7 +494,15 @@ class SessionService:
             )
             region.status = RegionStatus.CLOSED
 
-            if all(r.status is RegionStatus.CLOSED for r in session.regions):
+            # Session completes only when every region is CLOSED and no
+            # region is deferred. The all-CLOSED check would catch deferrals
+            # implicitly (deferred regions sit at AWAITING_REVEAL_CHOICE),
+            # but the explicit deferral check is honest about why.
+            all_closed = all(
+                r.status is RegionStatus.CLOSED for r in session.regions
+            )
+            any_deferred = any(r.is_deferred for r in session.regions)
+            if all_closed and not any_deferred:
                 session.current_phase = SessionPhase.COMPLETE
                 db.add(
                     PhaseEvent(
@@ -419,6 +525,10 @@ class SessionService:
                     hunk_text=r.hunk.get("text", ""),
                     status=r.status,
                     closure_mode=r.closure_mode,
+                    is_deferred=r.is_deferred,
+                    override_reason=r.override_reason,
+                    disagreement_reason=r.disagreement_reason,
+                    acknowledgment_note=r.acknowledgment_note,
                 )
                 for r in session.regions
             ]

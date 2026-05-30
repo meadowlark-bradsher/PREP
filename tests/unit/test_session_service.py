@@ -28,6 +28,7 @@ from predictive_review.storage.models import (
     DialogueTurn,
     DispositionStatus,
     HypothesisRevision,
+    OverrideReason,
     PhaseEvent,
     Reading,
     Reconciliation,
@@ -121,6 +122,17 @@ def _region_ids(session_factory, session_id: str) -> list[str]:
             .order_by(Region.ordinal.asc())
         )
         return list(db.execute(stmt).scalars())
+
+
+def _engage_all(
+    service: SessionService, session_factory, session_id: str
+) -> None:
+    """Engage every region in the session. Most existing tests drive
+    every region through reconciliation, so this is the v1.5-aware
+    equivalent of the old "lock_and_reveal puts you straight in
+    reconciliation" implicit behavior."""
+    for rid in _region_ids(session_factory, session_id):
+        service.engage_region(session_id=session_id, region_id=rid)
 
 
 # --- submit ----------------------------------------------------------------
@@ -263,6 +275,7 @@ def test_passing_reconciliation_moves_region_to_disposition(
             session_id=session_id, region_id=rid, body="draft"
         )
     service.lock_and_reveal(session_id=session_id)
+    _engage_all(service, session_factory, session_id)
 
     result = service.submit_reconciliation(
         session_id=session_id,
@@ -296,6 +309,7 @@ def test_failing_reconciliation_moves_region_to_dialogue(
             session_id=session_id, region_id=rid, body="draft"
         )
     service.lock_and_reveal(session_id=session_id)
+    _engage_all(service, session_factory, session_id)
 
     result = service.submit_reconciliation(
         session_id=session_id,
@@ -329,6 +343,7 @@ def test_dialogue_then_revised_teach_back_closes_region(
             session_id=session_id, region_id=rid, body="draft"
         )
     service.lock_and_reveal(session_id=session_id)
+    _engage_all(service, session_factory, session_id)
 
     region_id = region_ids[0]
     service.submit_reconciliation(
@@ -382,6 +397,7 @@ def test_close_with_disagreement_skips_to_disposition(service, session_factory):
             session_id=session_id, region_id=rid, body="draft"
         )
     service.lock_and_reveal(session_id=session_id)
+    _engage_all(service, session_factory, session_id)
 
     region_id = region_ids[0]
     service.submit_reconciliation(
@@ -413,6 +429,7 @@ def test_session_completes_when_all_regions_have_dispositions(
             session_id=session_id, region_id=rid, body="draft"
         )
     service.lock_and_reveal(session_id=session_id)
+    _engage_all(service, session_factory, session_id)
     for rid in region_ids:
         service.submit_reconciliation(
             session_id=session_id, region_id=rid, body="I understand"
@@ -458,6 +475,7 @@ def test_flagged_for_redesign_requires_justification(service, session_factory):
             session_id=session_id, region_id=rid, body="draft"
         )
     service.lock_and_reveal(session_id=session_id)
+    _engage_all(service, session_factory, session_id)
     service.submit_reconciliation(
         session_id=session_id, region_id=region_ids[0], body="I understand"
     )
@@ -503,6 +521,196 @@ def test_dialogue_turn_rejected_when_region_not_in_dialogue(
             session_id=session_id,
             region_id=region_ids[0],
             engineer_message="hi",
+        )
+
+
+# --- v1.5: three-way choice + override + deferral -------------------------
+
+
+def _drive_to_reveal_choice(service, session_factory) -> tuple[str, list[str]]:
+    """Submit, hypothesize on every region, lock and reveal. The two-region
+    sample diff leaves both regions at AWAITING_REVEAL_CHOICE — ready for
+    the three-way choice."""
+    session_id = _submit(service)
+    region_ids = _region_ids(session_factory, session_id)
+    for rid in region_ids:
+        service.save_hypothesis(
+            session_id=session_id, region_id=rid, body="draft"
+        )
+    service.lock_and_reveal(session_id=session_id)
+    return session_id, region_ids
+
+
+def test_lock_and_reveal_lands_regions_at_reveal_choice(
+    service, session_factory
+):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    with session_factory() as db:
+        for rid in region_ids:
+            region = db.get(Region, rid)
+            assert region.status is RegionStatus.AWAITING_REVEAL_CHOICE
+            assert region.closure_mode is None
+            assert region.is_deferred is False
+
+
+def test_engage_region_moves_to_reconciliation(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    service.engage_region(session_id=session_id, region_id=region_ids[0])
+    with session_factory() as db:
+        assert (
+            db.get(Region, region_ids[0]).status
+            is RegionStatus.AWAITING_RECONCILIATION
+        )
+
+
+def test_acknowledge_region_closes_with_note(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    service.acknowledge_region(
+        session_id=session_id,
+        region_id=region_ids[0],
+        note="routine null-check, no deeper engagement needed",
+    )
+    with session_factory() as db:
+        region = db.get(Region, region_ids[0])
+        assert region.status is RegionStatus.AWAITING_DISPOSITION
+        assert region.closure_mode is ClosureMode.ACKNOWLEDGED
+        assert "null-check" in region.acknowledgment_note
+
+
+def test_acknowledge_region_requires_non_empty_note(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    with pytest.raises(ValueError, match="acknowledgment_note"):
+        service.acknowledge_region(
+            session_id=session_id, region_id=region_ids[0], note="   "
+        )
+
+
+def test_defer_region_sets_flag_without_closing(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    service.defer_region(session_id=session_id, region_id=region_ids[0])
+    with session_factory() as db:
+        region = db.get(Region, region_ids[0])
+        assert region.status is RegionStatus.AWAITING_REVEAL_CHOICE
+        assert region.is_deferred is True
+        assert region.closure_mode is None
+
+
+def test_revisit_deferred_region_clears_flag(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    service.defer_region(session_id=session_id, region_id=region_ids[0])
+    service.revisit_deferred_region(
+        session_id=session_id, region_id=region_ids[0]
+    )
+    with session_factory() as db:
+        region = db.get(Region, region_ids[0])
+        assert region.is_deferred is False
+        # Still at the three-way choice — ready for the re-choice
+        assert region.status is RegionStatus.AWAITING_REVEAL_CHOICE
+
+
+def test_revisit_not_deferred_raises(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    with pytest.raises(InvalidRegionStatus, match="not deferred"):
+        service.revisit_deferred_region(
+            session_id=session_id, region_id=region_ids[0]
+        )
+
+
+def test_engage_after_defer_clears_the_deferral(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    service.defer_region(session_id=session_id, region_id=region_ids[0])
+    service.engage_region(session_id=session_id, region_id=region_ids[0])
+    with session_factory() as db:
+        region = db.get(Region, region_ids[0])
+        assert region.is_deferred is False
+        assert region.status is RegionStatus.AWAITING_RECONCILIATION
+
+
+def test_submit_override_records_reason_and_closes(service, session_factory):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    region_id = region_ids[0]
+    service.engage_region(session_id=session_id, region_id=region_id)
+    # Force a FAIL to land in IN_DIALOGUE
+    service.submit_reconciliation(
+        session_id=session_id, region_id=region_id, body="wrong"
+    )
+    assert _region_status(session_factory, region_id) is RegionStatus.IN_DIALOGUE
+
+    service.submit_override(
+        session_id=session_id,
+        region_id=region_id,
+        reason=OverrideReason.TOIL,
+    )
+    with session_factory() as db:
+        region = db.get(Region, region_id)
+        assert region.status is RegionStatus.AWAITING_DISPOSITION
+        assert region.closure_mode is ClosureMode.ENGINEER_OVERRODE
+        assert region.override_reason is OverrideReason.TOIL
+
+
+def test_close_with_disagreement_stores_optional_reason(
+    service, session_factory
+):
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    region_id = region_ids[0]
+    service.engage_region(session_id=session_id, region_id=region_id)
+    service.submit_reconciliation(
+        session_id=session_id, region_id=region_id, body="wrong"
+    )
+    service.close_with_disagreement(
+        session_id=session_id,
+        region_id=region_id,
+        reason="the model is confused about which retry path is being patched",
+    )
+    with session_factory() as db:
+        region = db.get(Region, region_id)
+        assert region.closure_mode is ClosureMode.ENGINEER_DISAGREED
+        assert "retry path" in region.disagreement_reason
+
+
+def test_deferred_region_blocks_session_completion(service, session_factory):
+    """One region engaged through to disposition, the other deferred. Session
+    must not complete until the deferred region is also resolved."""
+    session_id, region_ids = _drive_to_reveal_choice(service, session_factory)
+    service.engage_region(session_id=session_id, region_id=region_ids[0])
+    service.defer_region(session_id=session_id, region_id=region_ids[1])
+
+    service.submit_reconciliation(
+        session_id=session_id,
+        region_id=region_ids[0],
+        body="I understand",
+    )
+    service.set_disposition(
+        session_id=session_id,
+        region_id=region_ids[0],
+        status=DispositionStatus.ACCEPTED_AS_IS,
+    )
+
+    with session_factory() as db:
+        # Session still in RECONCILIATION because region_ids[1] is deferred.
+        assert (
+            db.get(Session, session_id).current_phase
+            is SessionPhase.RECONCILIATION
+        )
+
+    # Revisit and acknowledge the deferred region; THEN the session completes.
+    service.revisit_deferred_region(
+        session_id=session_id, region_id=region_ids[1]
+    )
+    service.acknowledge_region(
+        session_id=session_id,
+        region_id=region_ids[1],
+        note="trivial rename, nothing to learn",
+    )
+    service.set_disposition(
+        session_id=session_id,
+        region_id=region_ids[1],
+        status=DispositionStatus.ACCEPTED_AS_IS,
+    )
+
+    with session_factory() as db:
+        assert (
+            db.get(Session, session_id).current_phase is SessionPhase.COMPLETE
         )
 
 
