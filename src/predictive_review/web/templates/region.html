@@ -79,49 +79,11 @@
 
       {% elif region.status.value == "in_dialogue" %}
         <h2>Dialogue</h2>
-        {% if latest_fail %}
-          <div class="judge-fail">
-            <strong>Judge denied closure.</strong>
-            <p>Not yet covered: {{ latest_fail.missing_aspects }}</p>
-          </div>
-        {% endif %}
-
-        <ol class="thread">
-          {% for t in turns %}
-            <li class="turn turn-{{ t.role.value }}">
-              <strong>{{ t.role.value }}</strong>
-              <div>{{ t.body }}</div>
-            </li>
-          {% endfor %}
-        </ol>
-
-        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/dialogue">
-          <label>
-            <span>Message to the model</span>
-            <textarea name="message" rows="4" required></textarea>
-          </label>
-          <button type="submit">Send</button>
-        </form>
-
-        <details class="dialogue-exits">
-          <summary>Or close the dialogue</summary>
-
-          <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/revise">
-            <label>
-              <span>Revise your teach-back and re-run the judge</span>
-              <textarea name="body" rows="5"></textarea>
-            </label>
-            <button type="submit">Submit revised teach-back</button>
-          </form>
-
-          <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/disagree">
-            <label>
-              <span>Disagree with the reading (optional reason)</span>
-              <textarea name="reason" rows="3"></textarea>
-            </label>
-            <button type="submit">Close with disagreement</button>
-          </form>
-        </details>
+        <p class="lede">
+          The whole thread stays on this screen. The hunk and reading are
+          pinned on the left so you can refer to them at any time.
+        </p>
+        {% include "_thread.html" %}
 
       {% elif region.status.value == "awaiting_disposition" %}
         <h2>Disposition</h2>

@@ -383,6 +383,120 @@ def test_failing_reconciliation_lands_on_dialogue_form(client, service):
     assert "Judge denied closure" in r.text
 
 
+# --- chat surface ---------------------------------------------------------
+
+
+def _into_dialogue(client, service):
+    """Drive a session through reveal + engage + a failing reconciliation
+    so region 0 is in the dialogue state."""
+    session_id, regions = _through_reveal(client, service)
+    _engage_all_via_routes(client, session_id, regions)
+    region_id = regions[0].id
+    client.post(
+        f"/sessions/{session_id}/regions/{region_id}/reconcile",
+        data={"body": "wrong"},  # FAIL
+    )
+    return session_id, region_id
+
+
+def test_dialogue_surface_renders_two_pane_with_pinned_reading(client, service):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.get(f"/sessions/{session_id}/regions/{region_id}")
+    assert r.status_code == 200
+    # Both panes present.
+    assert "reading-pane" in r.text and "action-pane" in r.text
+    # Reading is pinned alongside.
+    assert "FAKE READING" in r.text and "Your locked hypothesis" in r.text
+    # Thread container and composer present.
+    assert 'id="thread-container"' in r.text
+    assert 'name="message"' in r.text
+    # All three exits visible (override placeholder until commit 6).
+    assert "Try again" in r.text
+    assert "Disagree with the reading" in r.text
+    assert "Not worth this depth" in r.text
+
+
+def test_dialogue_surface_frames_judge_verdict_at_top_of_thread(
+    client, service
+):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.get(f"/sessions/{session_id}/regions/{region_id}")
+    assert "Judge denied closure" in r.text
+    assert "Not yet covered" in r.text
+
+
+def test_htmx_dialogue_post_returns_thread_partial_not_full_page(
+    client, service
+):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/dialogue",
+        data={"message": "why does the retry bound out at 3?"},
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    # The partial — no <html>, no header chrome.
+    assert "<html" not in r.text.lower()
+    assert 'id="thread-container"' in r.text
+    # The engineer's message AND the fake model reply both rendered.
+    assert "why does the retry bound out" in r.text
+    assert "FAKE REPLY" in r.text
+
+
+def test_non_htmx_dialogue_post_redirects_for_graceful_degradation(
+    client, service
+):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/dialogue",
+        data={"message": "hi"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/sessions/{session_id}/regions/{region_id}"
+
+
+def test_thread_renders_persistent_history_across_turns(client, service):
+    session_id, region_id = _into_dialogue(client, service)
+    for msg in ("first question", "second question", "third question"):
+        client.post(
+            f"/sessions/{session_id}/regions/{region_id}/dialogue",
+            data={"message": msg},
+        )
+    r = client.get(f"/sessions/{session_id}/regions/{region_id}")
+    # Every engineer turn is rendered, in order.
+    body = r.text
+    assert body.index("first question") < body.index("second question") < body.index(
+        "third question"
+    )
+    # Each engineer turn paired with a model reply.
+    assert body.count("FAKE REPLY") == 3
+
+
+def test_revise_teach_back_button_is_a_dialogue_exit(client, service):
+    session_id, region_id = _into_dialogue(client, service)
+    r = client.post(
+        f"/sessions/{session_id}/regions/{region_id}/revise",
+        data={"body": "I understand now"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    region = service.get_region(session_id, region_id)
+    # PASS via 'understand' → AWAITING_DISPOSITION.
+    assert region.status.value == "awaiting_disposition"
+
+
+def test_disagree_exit_records_optional_reason(client, service):
+    session_id, region_id = _into_dialogue(client, service)
+    client.post(
+        f"/sessions/{session_id}/regions/{region_id}/disagree",
+        data={"reason": "the reading conflates two distinct call sites"},
+    )
+    region = service.get_region(session_id, region_id)
+    assert region.closure_mode.value == "engineer_disagreed"
+    assert "two distinct call sites" in region.disagreement_reason
+
+
 # --- 404s ------------------------------------------------------------------
 
 

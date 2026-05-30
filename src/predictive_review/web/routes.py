@@ -293,11 +293,12 @@ def register_routes(app: FastAPI) -> None:
 
     @app.post("/sessions/{session_id}/regions/{region_id}/dialogue")
     def submit_dialogue_turn(
+        request: Request,
         session_id: str,
         region_id: str,
         message: str = Form(...),
         service: SessionService = Depends(get_service),
-    ) -> RedirectResponse:
+    ):
         if not message.strip():
             raise HTTPException(
                 status_code=400, detail="Message cannot be empty."
@@ -307,6 +308,10 @@ def register_routes(app: FastAPI) -> None:
             region_id=region_id,
             engineer_message=message.strip(),
         )
+        # HTMX requests get the thread partial swapped in-place; legacy
+        # form posts get a full-page redirect.
+        if request.headers.get("HX-Request"):
+            return _render_thread_partial(request, service, session_id, region_id)
         return RedirectResponse(
             url=f"/sessions/{session_id}/regions/{region_id}", status_code=303
         )
@@ -406,6 +411,38 @@ def register_routes(app: FastAPI) -> None:
                 "per_region": per_region,
             },
         )
+
+
+def _render_thread_partial(
+    request: Request,
+    service: SessionService,
+    session_id: str,
+    region_id: str,
+) -> HTMLResponse:
+    """Render just the dialogue thread + composer + exits.
+
+    Returned in response to HTMX submits of the composer, so the page
+    swaps the thread in place rather than reloading. The non-HTMX path
+    still does a full redirect for graceful degradation.
+    """
+    region = service.get_region(session_id, region_id)
+    if region is None:
+        raise HTTPException(status_code=404, detail="Region not found")
+    turns = service.get_dialogue_turns(region_id)
+    attempts = service.get_closure_attempts(region_id)
+    latest_fail = next(
+        (a for a in reversed(attempts) if a.verdict.value == "fail"), None
+    )
+    return TEMPLATES.TemplateResponse(
+        request,
+        "_thread.html",
+        {
+            "session_id": session_id,
+            "region": region,
+            "turns": turns,
+            "latest_fail": latest_fail,
+        },
+    )
 
 
 # --- helpers ---------------------------------------------------------------
