@@ -215,22 +215,29 @@ def test_hypothesis_save_with_reveal_action_triggers_reveal(client, service):
     r = client.post(
         f"/sessions/{session_id}/hypothesis", data=data, follow_redirects=False
     )
-    # Save → redirect to /reveal which then redirects to a region surface.
+    # Submit-with-reveal does the lock_and_reveal inline and redirects
+    # to the first region's reveal-choice surface in one 303 hop.
     assert r.status_code == 303
-    assert r.headers["location"] == f"/sessions/{session_id}/reveal"
+    assert (
+        r.headers["location"]
+        == f"/sessions/{session_id}/regions/{regions[0].id}"
+    )
 
 
 # --- reveal + region surface ----------------------------------------------
 
 
 def _through_reveal(client, service) -> tuple[str, list]:
-    """Submit → hypothesize → reveal. Regions are at AWAITING_REVEAL_CHOICE."""
+    """Submit → hypothesize → reveal. Regions are at AWAITING_REVEAL_CHOICE.
+
+    The hypothesis POST with action=reveal does the lock_and_reveal inline,
+    so this is a single request (the old standalone /reveal POST is gone).
+    """
     session_id = _start(client)
     regions = service.list_regions(session_id)
     data = {f"hypothesis_{r.id}": "draft" for r in regions}
     data["action"] = "reveal"
     client.post(f"/sessions/{session_id}/hypothesis", data=data)
-    client.post(f"/sessions/{session_id}/reveal")
     return session_id, service.list_regions(session_id)
 
 
@@ -248,15 +255,28 @@ def test_reveal_lands_regions_at_reveal_choice(client, service):
         assert r.is_deferred is False
 
 
-def test_reveal_redirects_to_first_region_for_choice(client, service):
+def test_hypothesis_reveal_redirect_target_is_first_region_not_a_405(
+    client, service
+):
+    """Regression: the hypothesis POST used to 303 to a POST-only /reveal
+    endpoint, which the browser followed as GET and the server returned 405.
+    The reveal is now inlined into hypothesis POST and the redirect goes
+    straight to the first region's surface."""
     session_id = _start(client)
     regions = service.list_regions(session_id)
     data = {f"hypothesis_{r.id}": "draft" for r in regions}
     data["action"] = "reveal"
-    client.post(f"/sessions/{session_id}/hypothesis", data=data)
-    r = client.post(f"/sessions/{session_id}/reveal", follow_redirects=False)
+    r = client.post(
+        f"/sessions/{session_id}/hypothesis", data=data, follow_redirects=False
+    )
     assert r.status_code == 303
-    assert f"/sessions/{session_id}/regions/{regions[0].id}" in r.headers["location"]
+    assert (
+        r.headers["location"]
+        == f"/sessions/{session_id}/regions/{regions[0].id}"
+    )
+    # Following the redirect lands on a real page, not a 405.
+    landing = client.get(r.headers["location"])
+    assert landing.status_code == 200
 
 
 def test_region_surface_at_reveal_choice_shows_three_buttons(client, service):
@@ -675,7 +695,6 @@ def test_threshold_flows_into_judge_call(client, service):
     data = {f"hypothesis_{r.id}": "draft" for r in regions}
     data["action"] = "reveal"
     client.post(f"/sessions/{session_id}/hypothesis", data=data)
-    client.post(f"/sessions/{session_id}/reveal")
     _engage_all_via_routes(client, session_id, regions)
     client.post(
         f"/sessions/{session_id}/regions/{regions[0].id}/reconcile",

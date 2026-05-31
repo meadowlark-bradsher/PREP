@@ -33,11 +33,14 @@ LOAD-BEARING PROPERTIES ENFORCED HERE
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession, selectinload
+
+logger = logging.getLogger("predictive_review.sessions")
 
 from ..dialogue import DialogueManager, DialogueMessage, TurnRole
 from ..domain.diff import Hunk, parse_diff
@@ -225,6 +228,14 @@ class SessionService:
                 )
 
             db.commit()
+            logger.info(
+                "session %s submitted: engineer=%s selector=%s threshold=%s regions=%d",
+                session.id,
+                engineer_identifier,
+                selector.name,
+                engagement_threshold.value,
+                len(candidate_regions),
+            )
             return session.id
 
     # --- phase 2: hypothesis ------------------------------------------------
@@ -299,6 +310,11 @@ class SessionService:
                 )
             )
             db.commit()
+            logger.info(
+                "session %s reveal: locked hypotheses and generated %d readings",
+                session.id,
+                len(session.regions),
+            )
 
     # --- phase 3: reconciliation -------------------------------------------
 

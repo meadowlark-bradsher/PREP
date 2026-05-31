@@ -15,11 +15,14 @@ as 404s through HTTPException, not silent.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+
+logger = logging.getLogger("predictive_review.web")
 
 from ..sessions.errors import InvalidPhaseTransition, InvalidRegionStatus
 from ..sessions.service import RegionSnapshot, SessionService
@@ -213,26 +216,23 @@ def register_routes(app: FastAPI) -> None:
                     },
                     status_code=400,
                 )
+            # Inline the reveal here instead of redirecting to a POST
+            # endpoint — 303s follow as GETs, which would 405 against a
+            # POST-only /reveal. The reveal is the natural consequence
+            # of submitting hypotheses with action=reveal anyway.
+            try:
+                service.lock_and_reveal(session_id=session_id)
+            except InvalidPhaseTransition as e:
+                logger.warning(
+                    "lock_and_reveal failed for session %s: %s", session_id, e
+                )
+                raise HTTPException(status_code=400, detail=str(e))
+            logger.info("session %s revealed", session_id)
             return RedirectResponse(
-                url=f"/sessions/{session_id}/reveal", status_code=303
+                url=_resume_url(service, session_id), status_code=303
             )
         return RedirectResponse(
             url=f"/sessions/{session_id}/hypothesis", status_code=303
-        )
-
-    @app.post("/sessions/{session_id}/reveal")
-    def reveal(
-        session_id: str,
-        service: SessionService = Depends(get_service),
-    ) -> RedirectResponse:
-        try:
-            service.lock_and_reveal(session_id=session_id)
-        except InvalidPhaseTransition as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        # Regions land at AWAITING_REVEAL_CHOICE; resume_url routes the
-        # engineer to the first one for the three-way choice.
-        return RedirectResponse(
-            url=_resume_url(service, session_id), status_code=303
         )
 
     @app.post("/sessions/{session_id}/regions/{region_id}/engage")

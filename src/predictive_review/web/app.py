@@ -9,13 +9,19 @@ treated as a singleton-per-request without harm.
 
 from __future__ import annotations
 
+import logging
+import traceback
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..logging_config import configure_logging
 from ..sessions.service import SessionService
+
+logger = logging.getLogger("predictive_review.web")
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -32,6 +38,7 @@ def get_service() -> SessionService:
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     app = FastAPI(title="Predictive Review")
     app.mount(
         "/static",
@@ -41,4 +48,25 @@ def create_app() -> FastAPI:
     from .routes import register_routes
 
     register_routes(app)
+
+    @app.exception_handler(Exception)
+    async def _log_unhandled_exceptions(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        # Anything not caught by the route's own HTTPException branches
+        # lands here. Log with traceback + request context so a 405 or 500
+        # is diagnosable from the server logs alone.
+        logger.error(
+            "Unhandled exception on %s %s: %s\n%s",
+            request.method,
+            request.url.path,
+            exc,
+            traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
+
+    logger.info("Predictive Review web app ready")
     return app

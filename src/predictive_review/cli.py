@@ -19,6 +19,7 @@ from pathlib import Path
 import click
 
 from .judge import JudgeOutcome
+from .logging_config import configure_logging
 from .sessions.service import RegionSnapshot, SessionService
 from .storage.models import (
     DispositionStatus,
@@ -32,6 +33,8 @@ from .wiring import build_default_service
 
 @click.group()
 def cli() -> None:
+    """Predictive Review CLI."""
+    configure_logging()
     """Predictive Review — prior elicitation with reconciliation."""
 
 
