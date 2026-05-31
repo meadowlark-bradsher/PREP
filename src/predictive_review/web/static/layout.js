@@ -34,8 +34,11 @@
     if (!leftFrRaw) return;
     const leftFr = parseFloat(leftFrRaw);
     if (!isFinite(leftFr) || leftFr <= 0 || leftFr >= 1) return;
-    container.style.setProperty("--left-fr", leftFr);
-    container.style.setProperty("--right-fr", 1 - leftFr);
+    // CSS variables must carry the "fr" unit. <flex> inside calc() can't
+    // be derived from a custom property in Chrome, so we attach the unit
+    // here instead of letting the stylesheet do it.
+    container.style.setProperty("--left-fr", leftFr + "fr");
+    container.style.setProperty("--right-fr", 1 - leftFr + "fr");
   }
 
   function applyCollapsed(container, which) {
@@ -71,8 +74,8 @@
       // Clamp so neither pane can drag below ~15% of available width.
       const leftWidth = Math.max(usable * 0.15, Math.min(usable * 0.85, offset));
       const leftFr = leftWidth / usable;
-      container.style.setProperty("--left-fr", leftFr);
-      container.style.setProperty("--right-fr", 1 - leftFr);
+      container.style.setProperty("--left-fr", leftFr + "fr");
+      container.style.setProperty("--right-fr", 1 - leftFr + "fr");
     }
 
     function end() {
@@ -80,9 +83,12 @@
       dragging = false;
       container.classList.remove("is-dragging");
       gutter.classList.remove("is-dragging");
-      const leftFr = container.style.getPropertyValue("--left-fr").trim();
-      if (leftFr) {
-        localStorage.setItem(storeKey(layoutKey, "leftFr"), leftFr);
+      const raw = container.style.getPropertyValue("--left-fr").trim();
+      // Store as a bare number so the localStorage value is portable; the
+      // "fr" unit is reattached on the next page load by applyWidth.
+      const leftFr = parseFloat(raw);
+      if (isFinite(leftFr) && leftFr > 0 && leftFr < 1) {
+        localStorage.setItem(storeKey(layoutKey, "leftFr"), String(leftFr));
       }
     }
 

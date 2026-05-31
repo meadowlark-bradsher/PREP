@@ -288,10 +288,13 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .region-chip.status-closed { background: var(--closed-bg); }
 
 /* two-pane region surface with draggable gutter + collapsible panes.
-   Grid has three tracks now: reading | gutter | action. The fr values
-   on the outer tracks are driven by --left-fr / --right-fr (set by
-   layout.js from localStorage). gap is 0 because the gutter is a real
-   sibling element, not grid gap. */
+   Grid has three tracks: reading | gutter | action. The fr values on
+   the outer tracks are driven by --left-fr / --right-fr, which
+   layout.js writes WITH the "fr" unit attached. The unit must already
+   be present on the CSS variable — `calc(var(--x) * 1fr)` doesn't work
+   in Chrome because <flex> inside calc() can't be resolved from a
+   custom property at parse time. gap is 0 because the gutter is a
+   real sibling element, not grid gap. */
 .two-pane {
   display: grid; gap: 0;
   grid-template-columns:
