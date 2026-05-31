@@ -135,13 +135,18 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 /* two-pane region surface */
 .two-pane {
   display: grid; gap: 1.5rem;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) instead of 1fr — without it, grid columns refuse to
+     shrink below their content's min-content size, so a wide hunk pre
+     bullies the chat pane down to one-word-per-line. min-content here
+     is the longest unbreakable diff line. */
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr);
 }
 @media (max-width: 800px) { .two-pane { grid-template-columns: 1fr; } }
 
 .reading-pane, .action-pane {
   background: white;
   border: 1px solid var(--rule); border-radius: 4px; padding: 1rem 1.25rem;
+  min-width: 0;  /* belt-and-suspenders for the minmax above */
 }
 
 .judge-fail {
