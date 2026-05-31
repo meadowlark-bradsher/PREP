@@ -163,12 +163,48 @@ def test_hypothesis_page_renders_tabs_per_region(client, service):
         assert f'name="hypothesis_{region.id}"' in r.text
 
 
-def test_hypothesis_save_rejects_empty(client, service):
+def test_hypothesis_save_action_accepts_blank_tabs(client, service):
+    """Plain save (no reveal) should accept partial drafts — engineer can
+    fill some tabs, save, come back later. Only reveal demands all-filled."""
     session_id = _start(client)
     regions = service.list_regions(session_id)
     data = {f"hypothesis_{r.id}": "" for r in regions}
+    data["action"] = "save"
+    r = client.post(
+        f"/sessions/{session_id}/hypothesis", data=data, follow_redirects=False
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/sessions/{session_id}/hypothesis"
+
+
+def test_hypothesis_reveal_with_empty_tab_rerenders_with_error_preserving_drafts(
+    client, service
+):
+    """The original 'reveal a partial form' bug: an unfilled tab nuked the
+    other tabs' typing AND returned a raw JSON error. The fix renders the
+    page back with an inline error and the filled drafts intact."""
+    session_id = _start(client)
+    regions = service.list_regions(session_id)
+    # Fill region 0, leave region 1 blank.
+    data = {
+        f"hypothesis_{regions[0].id}": "Long thoughtful prediction here",
+        f"hypothesis_{regions[1].id}": "",
+        "action": "reveal",
+    }
     r = client.post(f"/sessions/{session_id}/hypothesis", data=data)
+    # Inline error response, not a JSON HTTPException.
     assert r.status_code == 400
+    assert "application/json" not in r.headers.get("content-type", "")
+    # Filled draft is preserved in the re-rendered form.
+    assert "Long thoughtful prediction here" in r.text
+    # Helpful error names the missing region.
+    assert regions[1].structural_label in r.text
+    assert "I have no idea" in r.text  # The hint about valid empty commits.
+    # And the filled draft is in fact persisted to the DB as a revision.
+    assert (
+        service.get_current_hypothesis_text(regions[0].id)
+        == "Long thoughtful prediction here"
+    )
 
 
 def test_hypothesis_save_with_reveal_action_triggers_reveal(client, service):

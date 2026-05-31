@@ -9,6 +9,8 @@
     Reveal is locked until every region has a hypothesis.
   </p>
 
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
   <form method="post" action="/sessions/{{ session_id }}/hypothesis" id="hypothesis-form">
     <div class="tabs">
       <nav class="tab-strip" role="tablist">

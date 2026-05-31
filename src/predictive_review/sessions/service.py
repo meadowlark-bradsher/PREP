@@ -671,6 +671,19 @@ class SessionService:
             reading = self._fetch_reading(db, region_id)
             return reading.body if reading else None
 
+    def get_current_hypothesis_text(self, region_id: str) -> str | None:
+        """Latest hypothesis revision body, locked or not.
+
+        For the in-flight hypothesis tabs, where nothing is locked yet,
+        this surfaces the engineer's most recent draft so refreshes and
+        re-renders preserve their typing. After reveal, this returns the
+        same thing as get_locked_hypothesis because the locked revision
+        is also the latest.
+        """
+        with self._session_factory() as db:
+            latest = self._latest_hypothesis(db, region_id)
+            return latest.body if latest else None
+
     def get_locked_hypothesis(self, region_id: str) -> str | None:
         with self._session_factory() as db:
             stmt = (

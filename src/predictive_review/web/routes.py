@@ -141,15 +141,22 @@ def register_routes(app: FastAPI) -> None:
                 url=_resume_url(service, session_id), status_code=303
             )
         regions = service.list_regions(session_id)
-        # Pre-fill any in-progress draft so the engineer can resume.
+        # Pre-fill the latest draft (locked OR unlocked) so the engineer
+        # can refresh, navigate away and come back, or recover from a
+        # validation error without losing their typing.
         drafts = {
-            r.id: service.get_locked_hypothesis(r.id) or ""
+            r.id: service.get_current_hypothesis_text(r.id) or ""
             for r in regions
         }
         return TEMPLATES.TemplateResponse(
             request,
             "hypothesis.html",
-            {"session_id": session_id, "regions": regions, "drafts": drafts},
+            {
+                "session_id": session_id,
+                "regions": regions,
+                "drafts": drafts,
+                "error": None,
+            },
         )
 
     @app.post("/sessions/{session_id}/hypothesis")
@@ -157,27 +164,55 @@ def register_routes(app: FastAPI) -> None:
         session_id: str,
         request: Request,
         service: SessionService = Depends(get_service),
-    ) -> RedirectResponse:
+    ):
         form = await request.form()
-        regions = service.list_regions(session_id)
-        # Save a revision per region; require every region has some text.
-        missing = []
-        for r in regions:
-            body = (form.get(f"hypothesis_{r.id}") or "").strip()
-            if not body:
-                missing.append(r.structural_label)
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Hypotheses missing for regions: {', '.join(missing)}",
-            )
-        for r in regions:
-            body = (form.get(f"hypothesis_{r.id}") or "").strip()
-            service.save_hypothesis(
-                session_id=session_id, region_id=r.id, body=body
-            )
         action = form.get("action") or "save"
+        regions = service.list_regions(session_id)
+
+        # Save every non-empty hypothesis as a revision — even on the
+        # reveal path, before any validation, so a single empty tab never
+        # nukes the engineer's typing in the other tabs.
+        for r in regions:
+            body = (form.get(f"hypothesis_{r.id}") or "").strip()
+            if body:
+                service.save_hypothesis(
+                    session_id=session_id, region_id=r.id, body=body
+                )
+
         if action == "reveal":
+            missing = [
+                r.structural_label
+                for r in regions
+                if not (form.get(f"hypothesis_{r.id}") or "").strip()
+            ]
+            if missing:
+                # Re-render the hypothesis page with an inline error and
+                # the engineer's drafts intact (sourced from DB and the
+                # submitted form so even unsaved blank-then-typed text
+                # comes back).
+                drafts = {
+                    r.id: (
+                        (form.get(f"hypothesis_{r.id}") or "").strip()
+                        or service.get_current_hypothesis_text(r.id)
+                        or ""
+                    )
+                    for r in regions
+                }
+                return TEMPLATES.TemplateResponse(
+                    request,
+                    "hypothesis.html",
+                    {
+                        "session_id": session_id,
+                        "regions": regions,
+                        "drafts": drafts,
+                        "error": (
+                            "Reveal needs a hypothesis for every region. "
+                            f"Still empty: {', '.join(missing)}. "
+                            "Even \"I have no idea\" is a valid commit."
+                        ),
+                    },
+                    status_code=400,
+                )
             return RedirectResponse(
                 url=f"/sessions/{session_id}/reveal", status_code=303
             )
