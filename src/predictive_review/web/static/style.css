@@ -108,6 +108,57 @@ fieldset legend { padding: 0 0.5rem; color: var(--muted); }
 .threshold-choice .radio span { font-weight: normal; }
 .threshold-choice .radio strong { color: var(--accent-strong); }
 
+/* commit browser */
+.commit-browser .repo-control {
+  display: flex; align-items: end; gap: 0.75rem; margin-bottom: 0.75rem;
+}
+.commit-browser .repo-control label { flex: 1; margin: 0; }
+.commit-browser .repo-reload { margin: 0; }
+
+.commit-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.commit-card {
+  width: 100%;
+  text-align: left;
+  background: white;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  color: var(--fg);
+  margin: 0;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+.commit-card:hover {
+  border-color: var(--accent);
+  background: #f6f8fb;
+}
+.commit-card .commit-meta {
+  display: flex; gap: 0.75rem; align-items: baseline;
+  font-size: 0.78rem; color: var(--muted); margin-bottom: 0.25rem;
+}
+.commit-card .commit-sha {
+  background: #eef0f3; padding: 0.05em 0.4em; border-radius: 3px;
+  font-size: 0.85em; color: var(--accent-strong);
+}
+.commit-card .commit-author { font-weight: 500; }
+.commit-card .commit-subject {
+  font-weight: 600; color: var(--accent-strong); margin: 0.1rem 0;
+}
+.commit-card .commit-body {
+  margin-top: 0.4rem; color: var(--muted); font-size: 0.88rem;
+}
+.commit-card .commit-body :is(p, ul, ol) { margin: 0.3rem 0; }
+.commit-card.is-working { background: #f6f8fb; }
+
+.alt-sources { margin-top: 1.5rem; border-top: 1px solid var(--rule); padding-top: 0.5rem; }
+.alt-sources summary { cursor: pointer; color: var(--muted); padding: 0.5rem 0; font-weight: 500; }
+.alt-sources .lede { font-size: 0.88rem; }
+
+.commit-error { margin: 0.5rem 0; }
+.commit-error p { margin: 0.4rem 0 0; }
+
 /* hypothesis tabs */
 .tabs { border: 1px solid var(--rule); border-radius: 4px; background: white; }
 .tab-strip {

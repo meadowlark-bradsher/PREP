@@ -35,6 +35,7 @@ from ..storage.models import (
     SessionPhase,
 )
 from .app import TEMPLATES, get_service
+from .git_log import list_commits
 
 
 def register_routes(app: FastAPI) -> None:
@@ -54,27 +55,38 @@ def register_routes(app: FastAPI) -> None:
         engineer: str = Form("default"),
         diff_text: str = Form(""),
         commit: str = Form(""),
+        picked_commit: str = Form(""),
         git_range: str = Form(""),
+        repo: str = Form("."),
         engagement_threshold: str = Form("default"),
         service: SessionService = Depends(get_service),
     ) -> RedirectResponse:
-        # Exactly one of diff_text / commit / git_range must be provided.
-        chosen = [v for v in (diff_text.strip(), commit.strip(), git_range.strip()) if v]
+        # The commit-browser submits picked_commit; the manual SHA input
+        # submits commit. Prefer the browser pick when both are present —
+        # someone left text in the collapsed details and then clicked a
+        # card.
+        effective_commit = picked_commit.strip() or commit.strip()
+        chosen = [
+            v
+            for v in (diff_text.strip(), effective_commit, git_range.strip())
+            if v
+        ]
         if len(chosen) != 1:
             return TEMPLATES.TemplateResponse(
                 request,
                 "launcher.html",
                 {
-                    "error": "Provide exactly one diff source (paste, commit, or range).",
+                    "error": "Pick a commit, or open the advanced section and provide exactly one of SHA / range / paste.",
                 },
                 status_code=400,
             )
 
+        repo = repo.strip() or "."
         source_commit: Optional[str] = None
         source_range: Optional[str] = None
-        if commit.strip():
+        if effective_commit:
             try:
-                diff_text = _git_show(commit.strip())
+                diff_text = _git_show(effective_commit, repo_path=repo)
             except RuntimeError as e:
                 return TEMPLATES.TemplateResponse(
                     request,
@@ -82,10 +94,10 @@ def register_routes(app: FastAPI) -> None:
                     {"error": str(e)},
                     status_code=400,
                 )
-            source_commit = commit.strip()
+            source_commit = effective_commit
         elif git_range.strip():
             try:
-                diff_text = _git_diff(git_range.strip())
+                diff_text = _git_diff(git_range.strip(), repo_path=repo)
             except RuntimeError as e:
                 return TEMPLATES.TemplateResponse(
                     request,
@@ -123,6 +135,33 @@ def register_routes(app: FastAPI) -> None:
                 status_code=400,
             )
         return RedirectResponse(url=f"/sessions/{session_id}", status_code=303)
+
+    @app.get("/commits", response_class=HTMLResponse)
+    def commits_fragment(
+        request: Request,
+        repo: str = ".",
+    ) -> HTMLResponse:
+        """HTMX-loaded fragment showing recent commits in the given repo.
+
+        Returns a partial that the launcher swaps into its commit list.
+        Errors render as an inline error fragment so the user can fix
+        the repo path and retry without reloading.
+        """
+        repo = repo.strip() or "."
+        try:
+            commits = list_commits(repo_path=repo, limit=30)
+        except RuntimeError as e:
+            return TEMPLATES.TemplateResponse(
+                request,
+                "_commit_error.html",
+                {"error": str(e), "repo": repo},
+                status_code=400,
+            )
+        return TEMPLATES.TemplateResponse(
+            request,
+            "_commit_list.html",
+            {"commits": commits, "repo": repo},
+        )
 
     @app.get("/sessions/{session_id}")
     def resume(
@@ -567,12 +606,12 @@ def _resume_url(service: SessionService, session_id: str) -> str:
     return f"/sessions/{session_id}/summary"
 
 
-def _git_show(sha: str) -> str:
-    return _run_git(["git", "show", sha])
+def _git_show(sha: str, repo_path: str = ".") -> str:
+    return _run_git(["git", "-C", repo_path, "show", sha])
 
 
-def _git_diff(rng: str) -> str:
-    return _run_git(["git", "diff", rng])
+def _git_diff(rng: str, repo_path: str = ".") -> str:
+    return _run_git(["git", "-C", repo_path, "diff", rng])
 
 
 def _run_git(args: list[str]) -> str:

@@ -87,9 +87,15 @@ def test_launcher_renders(client):
     r = client.get("/launch")
     assert r.status_code == 200
     assert "Start a session" in r.text
+    # Commit browser is the primary surface.
+    assert "Pick a commit" in r.text
+    assert 'name="repo"' in r.text
+    assert 'hx-get="/commits"' in r.text
+    # The legacy inputs are still in the form, just collapsed under details.
     assert 'name="diff_text"' in r.text
     assert 'name="commit"' in r.text
     assert 'name="git_range"' in r.text
+    assert "Other diff sources" in r.text
 
 
 def test_launch_rejects_no_input(client):
@@ -98,7 +104,10 @@ def test_launch_rejects_no_input(client):
         data={"engineer": "x", "diff_text": "", "commit": "", "git_range": ""},
     )
     assert r.status_code == 400
-    assert "exactly one" in r.text
+    # Error message points the engineer at the commit browser or the
+    # collapsed advanced section; the literal "exactly one" phrasing
+    # appears in the latter description.
+    assert "Pick a commit" in r.text or "exactly one" in r.text
 
 
 def test_launch_rejects_multiple_inputs(client):
@@ -734,3 +743,109 @@ def test_unknown_region_returns_404(client):
     session_id = _start(client)
     r = client.get(f"/sessions/{session_id}/regions/does-not-exist")
     assert r.status_code == 404
+
+
+# --- commit browser -------------------------------------------------------
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    """A throwaway local git repo with two commits, for browser tests."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Tester"], cwd=tmp_path, check=True)
+    (tmp_path / "a.txt").write_text("hello\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "Add a.txt\n\nThe initial file."],
+        cwd=tmp_path, check=True,
+    )
+    (tmp_path / "a.txt").write_text("hello\nworld\n")
+    subprocess.run(
+        ["git", "commit", "-q", "-am", "Add a second line\n\nWith a body too."],
+        cwd=tmp_path, check=True,
+    )
+    return tmp_path
+
+
+def test_commits_fragment_lists_recent_commits(client, git_repo):
+    r = client.get(f"/commits?repo={git_repo}")
+    assert r.status_code == 200
+    assert "Add a second line" in r.text
+    assert "Add a.txt" in r.text
+    assert "Tester" in r.text
+    # Each commit is a submit button targeting the launcher form.
+    assert 'name="picked_commit"' in r.text
+    assert 'form="launcher-form"' in r.text
+
+
+def test_commits_fragment_renders_body_as_markdown(client, git_repo):
+    r = client.get(f"/commits?repo={git_repo}")
+    # Bodies go through the markdown filter — paragraphs wrapped in <p>.
+    assert "<p>The initial file.</p>" in r.text
+
+
+def test_commits_fragment_returns_error_for_non_repo_path(client, tmp_path):
+    r = client.get(f"/commits?repo={tmp_path}")
+    assert r.status_code == 400
+    assert "Couldn't list commits" in r.text
+
+
+def test_launch_with_picked_commit_uses_git_show_in_that_repo(
+    client, service, git_repo
+):
+    # Find the SHA of the most recent commit in the test repo.
+    import subprocess
+
+    sha = subprocess.run(
+        ["git", "-C", str(git_repo), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    r = client.post(
+        "/launch",
+        data={
+            "engineer": "meadowlark",
+            "picked_commit": sha,
+            "repo": str(git_repo),
+            "engagement_threshold": "default",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    session_id = r.headers["location"].rsplit("/", 1)[-1]
+    snap = service.get_session(session_id)
+    assert snap is not None
+    assert snap.source_commit == sha
+    # The diff for that commit was actually captured.
+    from predictive_review.storage.models import Session as Sess
+    with service._session_factory() as db:  # type: ignore[attr-defined]
+        row = db.get(Sess, session_id)
+        assert "a.txt" in row.diff_text
+
+
+def test_launch_picked_commit_wins_over_manual_commit_field(client, git_repo):
+    """Defensive: if the engineer left stale text in the collapsed manual
+    SHA field and then clicked a commit card, picked_commit should win."""
+    import subprocess
+
+    sha = subprocess.run(
+        ["git", "-C", str(git_repo), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    r = client.post(
+        "/launch",
+        data={
+            "engineer": "x",
+            "picked_commit": sha,
+            "commit": "stale-text-from-typing-earlier",
+            "repo": str(git_repo),
+            "engagement_threshold": "default",
+        },
+        follow_redirects=False,
+    )
+    # Picked wins; no error from the stale 'commit' field colliding.
+    assert r.status_code == 303

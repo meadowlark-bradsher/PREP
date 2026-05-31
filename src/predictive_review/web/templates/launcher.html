@@ -3,11 +3,14 @@
 {% block content %}
 <section class="launcher">
   <h1>Start a session</h1>
-  <p class="lede">Provide a diff. The selector will pick 2–4 regions for predictive review.</p>
+  <p class="lede">
+    Pick a commit from the repository you're running <code>prep serve</code>
+    in, or point at another local repo.
+  </p>
 
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
-  <form method="post" action="/launch">
+  <form method="post" action="/launch" id="launcher-form">
     <label>
       <span>Engineer identifier</span>
       <input type="text" name="engineer" value="default" autocomplete="off">
@@ -34,26 +37,51 @@
       </label>
     </fieldset>
 
-    <fieldset class="diff-source">
-      <legend>Diff source (fill exactly one)</legend>
-
-      <label>
-        <span>Paste a unified diff</span>
-        <textarea name="diff_text" rows="10" placeholder="diff --git a/foo b/foo&#10;..."></textarea>
-      </label>
-
-      <label>
-        <span>Or a commit SHA — runs <code>git show &lt;sha&gt;</code></span>
-        <input type="text" name="commit" placeholder="HEAD, HEAD~1, abc123..." autocomplete="off">
-      </label>
-
-      <label>
-        <span>Or a range — runs <code>git diff &lt;range&gt;</code></span>
-        <input type="text" name="git_range" placeholder="main..HEAD" autocomplete="off">
-      </label>
+    <fieldset class="commit-browser">
+      <legend>Pick a commit</legend>
+      <div class="repo-control">
+        <label>
+          <span>Repository path (default <code>.</code> — wherever prep serve was started)</span>
+          <input type="text" name="repo" value="." autocomplete="off">
+        </label>
+        <button type="button" class="repo-reload"
+                hx-get="/commits"
+                hx-target="#commit-list"
+                hx-include="[name='repo']"
+                hx-indicator="#commits-busy">
+          Reload
+        </button>
+        <span id="commits-busy" class="htmx-indicator">loading…</span>
+      </div>
+      <div id="commit-list"
+           hx-get="/commits"
+           hx-trigger="load"
+           hx-include="[name='repo']"
+           hx-indicator="#commits-busy">
+        <p class="lede">Loading commits…</p>
+      </div>
     </fieldset>
 
-    <button type="submit" class="primary">Submit and select regions</button>
+    <details class="alt-sources">
+      <summary>Other diff sources — SHA, range, or paste</summary>
+      <p class="lede">
+        Use these only if the commit browser above isn't the right shape
+        for what you want to review.
+      </p>
+      <label>
+        <span>Commit SHA — runs <code>git show &lt;sha&gt;</code></span>
+        <input type="text" name="commit" placeholder="HEAD, HEAD~1, abc123..." autocomplete="off">
+      </label>
+      <label>
+        <span>Range — runs <code>git diff &lt;range&gt;</code></span>
+        <input type="text" name="git_range" placeholder="main..HEAD" autocomplete="off">
+      </label>
+      <label>
+        <span>Paste a unified diff</span>
+        <textarea name="diff_text" rows="8" placeholder="diff --git a/foo b/foo&#10;..."></textarea>
+      </label>
+      <button type="submit" class="primary">Submit and select regions</button>
+    </details>
   </form>
 </section>
 {% endblock %}

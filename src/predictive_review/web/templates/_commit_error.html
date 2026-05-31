@@ -1,0 +1,6 @@
+{# HTMX-loaded fragment shown when `git log` fails — bad repo path, git
+   not installed, etc. Engineer can fix the input and click Reload. #}
+<div class="error commit-error">
+  <strong>Couldn't list commits in <code>{{ repo }}</code>:</strong>
+  <p>{{ error }}</p>
+</div>

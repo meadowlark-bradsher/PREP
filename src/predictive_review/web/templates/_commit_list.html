@@ -1,0 +1,29 @@
+{# HTMX-loaded fragment: a list of clickable commit cards. Each card is
+   a submit button for the launcher form (#launcher-form) carrying
+   name="picked_commit" value="<sha>" so clicking it submits the full
+   launcher with the SHA pre-filled. #}
+{% if commits %}
+<ul class="commit-list">
+  {% for c in commits %}
+    <li>
+      <button type="submit"
+              form="launcher-form"
+              name="picked_commit"
+              value="{{ c.sha }}"
+              class="commit-card">
+        <div class="commit-meta">
+          <code class="commit-sha">{{ c.short_sha }}</code>
+          <span class="commit-author">{{ c.author }}</span>
+          <time>{{ c.author_date }}</time>
+        </div>
+        <div class="commit-subject">{{ c.subject }}</div>
+        {% if c.body %}
+          <div class="commit-body prose">{{ c.body | markdown }}</div>
+        {% endif %}
+      </button>
+    </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="lede">No commits found in <code>{{ repo }}</code>.</p>
+{% endif %}
