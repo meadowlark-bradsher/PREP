@@ -21,10 +21,10 @@
       <pre class="hunk"><code>{{ region.hunk_text }}</code></pre>
 
       <h2>Your locked hypothesis</h2>
-      <div class="locked-text">{{ hypothesis }}</div>
+      <div class="locked-text prose">{{ hypothesis | markdown }}</div>
 
       <h2>Model's reading</h2>
-      <div class="reading">{{ reading }}</div>
+      <div class="reading prose">{{ reading | markdown }}</div>
     </article>
 
     <article class="action-pane">

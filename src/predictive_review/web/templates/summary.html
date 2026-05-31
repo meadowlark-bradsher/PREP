@@ -41,10 +41,10 @@
       <details>
         <summary>Full artifact</summary>
         <h3>Hunk</h3><pre class="hunk"><code>{{ r.hunk_text }}</code></pre>
-        <h3>Hypothesis</h3><div class="locked-text">{{ item.hypothesis }}</div>
-        <h3>Reading</h3><div class="reading">{{ item.reading }}</div>
+        <h3>Hypothesis</h3><div class="locked-text prose">{{ item.hypothesis | markdown }}</div>
+        <h3>Reading</h3><div class="reading prose">{{ item.reading | markdown }}</div>
         {% if item.reconciliation %}
-          <h3>Reconciliation</h3><div class="locked-text">{{ item.reconciliation }}</div>
+          <h3>Reconciliation</h3><div class="locked-text prose">{{ item.reconciliation | markdown }}</div>
         {% endif %}
         {% if item.turns %}
           <h3>Dialogue</h3>
@@ -52,7 +52,7 @@
             {% for t in item.turns %}
               <li class="turn turn-{{ t.role.value }}">
                 <strong>{{ t.role.value }}</strong>
-                <div>{{ t.body }}</div>
+                <div class="prose">{{ t.body | markdown }}</div>
               </li>
             {% endfor %}
           </ol>

@@ -112,10 +112,34 @@ pre.hunk {
 pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 
 .locked-text, .reading {
-  white-space: pre-wrap;
   background: white;
   border: 1px solid var(--rule); border-radius: 4px;
   padding: 0.75rem 1rem;
+}
+
+/* .prose is applied to any container whose contents come from the markdown
+   filter. Markdown emits real <p> / <ul> / <code> / <pre> so we don't want
+   white-space: pre-wrap, which would double-space everything. */
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose p { margin: 0.5rem 0; }
+.prose ul, .prose ol { margin: 0.5rem 0; padding-left: 1.25rem; }
+.prose li { margin: 0.15rem 0; }
+.prose code {
+  background: #eef0f3; padding: 0.05em 0.35em;
+  border-radius: 3px; font-size: 0.85em;
+}
+.prose pre {
+  background: #1e2330; color: #d8dee9; padding: 0.6rem 0.85rem;
+  border-radius: 4px; overflow-x: auto; font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+.prose pre code {
+  background: transparent; padding: 0; font-size: inherit; color: inherit;
+}
+.prose blockquote {
+  border-left: 3px solid var(--rule); padding-left: 0.75rem;
+  color: var(--muted); margin: 0.5rem 0;
 }
 
 /* region chip strip */
@@ -171,7 +195,6 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 }
 .turn:last-child { margin-bottom: 0; }
 .turn strong { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); display: block; margin-bottom: 0.25rem; }
-.turn-body { white-space: pre-wrap; }
 .turn-engineer { border-left-color: var(--accent); }
 .turn-model { background: #eef2f8; }
 

@@ -20,11 +20,13 @@ from fastapi.templating import Jinja2Templates
 
 from ..logging_config import configure_logging
 from ..sessions.service import SessionService
+from .markdown import render_markdown
 
 logger = logging.getLogger("predictive_review.web")
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+TEMPLATES.env.filters["markdown"] = render_markdown
 
 
 def get_service() -> SessionService:

@@ -6,7 +6,7 @@
   {% if latest_fail %}
     <div class="judge-fail">
       <strong>Judge denied closure.</strong>
-      <p>Not yet covered: {{ latest_fail.missing_aspects }}</p>
+      <div class="prose">{{ ("Not yet covered: " ~ latest_fail.missing_aspects) | markdown }}</div>
     </div>
   {% endif %}
 
@@ -14,7 +14,7 @@
     {% for t in turns %}
       <li class="turn turn-{{ t.role.value }}">
         <strong>{{ t.role.value }}</strong>
-        <div class="turn-body">{{ t.body }}</div>
+        <div class="turn-body prose">{{ t.body | markdown }}</div>
       </li>
     {% endfor %}
   </ol>
