@@ -787,6 +787,20 @@ def test_commits_fragment_renders_body_as_markdown(client, git_repo):
     assert "<p>The initial file.</p>" in r.text
 
 
+def test_commits_fragment_collapses_body_by_default(client, git_repo):
+    """Browsing by title alone is the default; bodies are revealed by
+    clicking the per-card '▸ Show body' toggle. The body element must
+    therefore be present in the DOM but hidden, and the toggle button
+    must have aria-expanded=false to start."""
+    r = client.get(f"/commits?repo={git_repo}")
+    assert 'class="commit-body prose" hidden' in r.text
+    assert 'class="commit-expand"' in r.text
+    assert 'aria-expanded="false"' in r.text
+    # Cards without bodies don't get a toggle — locked in for later
+    # when our test repo grows a subject-only commit.
+    assert "▸ Show body" in r.text
+
+
 def test_commits_fragment_returns_error_for_non_repo_path(client, tmp_path):
     r = client.get(f"/commits?repo={tmp_path}")
     assert r.status_code == 400

@@ -1,26 +1,39 @@
-{# HTMX-loaded fragment: a list of clickable commit cards. Each card is
-   a submit button for the launcher form (#launcher-form) carrying
-   name="picked_commit" value="<sha>" so clicking it submits the full
-   launcher with the SHA pre-filled. #}
+{# HTMX-loaded fragment: a list of commit cards. Each card has two
+   distinct click targets:
+     1. The header — sha/author/date + subject — submits the launcher
+        form to pick that commit.
+     2. The "Show body" toggle — reveals the body without picking.
+   Cards without a body don't show the toggle. #}
 {% if commits %}
 <ul class="commit-list">
   {% for c in commits %}
-    <li>
+    {% set body_id = "commit-body-" ~ loop.index ~ "-" ~ c.short_sha %}
+    <li class="commit-card">
       <button type="submit"
               form="launcher-form"
               name="picked_commit"
               value="{{ c.sha }}"
-              class="commit-card">
+              class="commit-pick">
         <div class="commit-meta">
           <code class="commit-sha">{{ c.short_sha }}</code>
           <span class="commit-author">{{ c.author }}</span>
           <time>{{ c.author_date }}</time>
         </div>
         <div class="commit-subject">{{ c.subject }}</div>
-        {% if c.body %}
-          <div class="commit-body prose">{{ c.body | markdown }}</div>
-        {% endif %}
       </button>
+      {% if c.body %}
+        <button type="button"
+                class="commit-expand"
+                aria-expanded="false"
+                aria-controls="{{ body_id }}"
+                data-expand-label="▾ Hide body"
+                data-collapse-label="▸ Show body">
+          ▸ Show body
+        </button>
+        <div id="{{ body_id }}" class="commit-body prose" hidden>
+          {{ c.body | markdown }}
+        </div>
+      {% endif %}
     </li>
   {% endfor %}
 </ul>
