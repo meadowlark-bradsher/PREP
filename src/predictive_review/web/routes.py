@@ -319,6 +319,36 @@ def register_routes(app: FastAPI) -> None:
         )
 
     @app.get(
+        "/sessions/{session_id}/regions/{region_id}/context",
+        response_class=HTMLResponse,
+    )
+    def region_context_window(
+        request: Request,
+        session_id: str,
+        region_id: str,
+        service: SessionService = Depends(get_service),
+    ) -> HTMLResponse:
+        """Read-only context view for the dual-monitor workflow.
+
+        Renders just the hunk + locked hypothesis + model's reading on its
+        own page so the engineer can pop it out into a separate window and
+        drag it to a second monitor. The content is static after reveal —
+        no chrome, no chip strip, no live updates needed.
+        """
+        _require_session(service, session_id)
+        region = _require_region(service, session_id, region_id)
+        return TEMPLATES.TemplateResponse(
+            request,
+            "context_window.html",
+            {
+                "session_id": session_id,
+                "region": region,
+                "hypothesis": service.get_locked_hypothesis(region_id) or "",
+                "reading": service.get_reading(region_id) or "",
+            },
+        )
+
+    @app.get(
         "/sessions/{session_id}/regions/{region_id}",
         response_class=HTMLResponse,
     )

@@ -13,7 +13,16 @@
     {% endfor %}
   </nav>
 
-  <h1>{{ region.structural_label }}</h1>
+  <div class="region-title-row">
+    <h1>{{ region.structural_label }}</h1>
+    <button type="button"
+            class="pop-context-btn"
+            data-pop-url="/sessions/{{ session_id }}/regions/{{ region.id }}/context"
+            data-pop-name="prep-context-{{ region.id }}"
+            title="Open the hunk + hypothesis + reading in a separate window, e.g. to drag to a second monitor.">
+      📋 Pop context to new window
+    </button>
+  </div>
 
   <div class="two-pane">
     <article class="reading-pane">

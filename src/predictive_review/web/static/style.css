@@ -191,6 +191,30 @@ fieldset legend { padding: 0 0.5rem; color: var(--muted); }
 .commit-error { margin: 0.5rem 0; }
 .commit-error p { margin: 0.4rem 0 0; }
 
+/* dual-monitor: "Pop context to new window" affordance + standalone view */
+.region-title-row {
+  display: flex; align-items: baseline; gap: 1rem;
+  justify-content: space-between; flex-wrap: wrap;
+}
+.region-title-row h1 { margin: 0; }
+.pop-context-btn {
+  background: white; color: var(--accent-strong);
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin: 0;
+  white-space: nowrap;
+}
+.pop-context-btn:hover { background: #f6f8fb; border-color: var(--accent); }
+
+.context-window .context-header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5rem; margin-bottom: 1rem;
+}
+.context-window .context-header h1 { margin: 0 0 0.25rem; }
+.context-window .context-header .lede { margin: 0; font-size: 0.85rem; }
+
 /* hypothesis tabs */
 .tabs { border: 1px solid var(--rule); border-radius: 4px; background: white; }
 .tab-strip {

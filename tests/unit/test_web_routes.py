@@ -745,6 +745,41 @@ def test_unknown_region_returns_404(client):
     assert r.status_code == 404
 
 
+# --- dual-monitor: standalone context window --------------------------------
+
+
+def test_region_context_window_renders_hunk_hypothesis_reading(client, service):
+    session_id, regions = _through_reveal(client, service)
+    rid = regions[0].id
+    r = client.get(f"/sessions/{session_id}/regions/{rid}/context")
+    assert r.status_code == 200
+    # The standalone context view shows the static content the engineer
+    # drags to a second monitor — and nothing else (no thread, no
+    # composer, no disposition form).
+    assert "Hunk" in r.text
+    assert "Your locked hypothesis" in r.text
+    assert "Model's reading" in r.text
+    assert "FAKE READING" in r.text
+    assert "draft" in r.text  # the hypothesis text from _through_reveal
+    # No action-side chrome.
+    assert "Choose your engagement" not in r.text
+    assert 'id="thread-container"' not in r.text
+
+
+def test_region_surface_has_pop_context_button(client, service):
+    session_id, regions = _through_reveal(client, service)
+    rid = regions[0].id
+    r = client.get(f"/sessions/{session_id}/regions/{rid}")
+    assert "pop-context-btn" in r.text
+    assert f"/sessions/{session_id}/regions/{rid}/context" in r.text
+
+
+def test_context_window_404s_for_unknown_region(client):
+    session_id = _start(client)
+    r = client.get(f"/sessions/{session_id}/regions/does-not-exist/context")
+    assert r.status_code == 404
+
+
 # --- commit browser -------------------------------------------------------
 
 

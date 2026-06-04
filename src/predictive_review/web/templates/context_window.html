@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Context: {{ region.structural_label }} — Predictive Review{% endblock %}
+{% block content %}
+<section class="context-window">
+  <header class="context-header">
+    <h1>{{ region.structural_label }}</h1>
+    <p class="lede">
+      Session <code>{{ session_id }}</code> · region {{ region.ordinal + 1 }}
+      · context view
+    </p>
+  </header>
+
+  <h2>Hunk</h2>
+  <pre class="hunk"><code>{{ region.hunk_text }}</code></pre>
+
+  <h2>Your locked hypothesis</h2>
+  <div class="locked-text prose">{{ hypothesis | markdown }}</div>
+
+  <h2>Model's reading</h2>
+  <div class="reading prose">{{ reading | markdown }}</div>
+</section>
+{% endblock %}
