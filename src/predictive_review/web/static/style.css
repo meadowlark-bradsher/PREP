@@ -298,6 +298,12 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 }
 @media (max-width: 800px) { .two-pane { grid-template-columns: 1fr; } }
 
+/* When the context is popped into its own window (dual-monitor mode), the
+   left reading-pane lives over there — collapse it here so the action/chat
+   pane takes the whole window. dual_monitor.js toggles this class. */
+.two-pane.context-popped { grid-template-columns: 1fr; }
+.two-pane.context-popped .reading-pane { display: none; }
+
 .reading-pane, .action-pane {
   background: white;
   border: 1px solid var(--rule); border-radius: 4px; padding: 1rem 1.25rem;
