@@ -1,0 +1,373 @@
+/* Minimal, legible styling. Deliberately plain — the UI is the substance. */
+
+:root {
+  --fg: #1a1a1a;
+  --bg: #fafafa;
+  --muted: #6b6b6b;
+  --rule: #d8d8d8;
+  --accent: #2b3a55;
+  --accent-strong: #14213d;
+  --warn-bg: #fff4e0;
+  --warn-fg: #6a3e00;
+  --closed-bg: #e6f4ea;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.45;
+}
+
+main { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
+
+header {
+  border-bottom: 1px solid var(--rule);
+  background: white;
+  padding: 0.75rem 1.5rem;
+}
+.brand {
+  font-weight: 600; color: var(--accent-strong); text-decoration: none;
+}
+
+h1 { margin-top: 0; }
+h2 { margin-top: 1.5rem; font-size: 1.05rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+h3 { font-size: 0.95rem; color: var(--muted); }
+
+.lede { color: var(--muted); }
+
+form label { display: block; margin: 0.75rem 0; }
+form label span { display: block; font-weight: 500; margin-bottom: 0.25rem; }
+
+input[type="text"], textarea {
+  width: 100%; padding: 0.5rem 0.6rem;
+  border: 1px solid var(--rule); border-radius: 4px;
+  font: inherit;
+  background: white;
+}
+textarea { font-family: ui-monospace, Menlo, Consolas, monospace; line-height: 1.4; }
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--rule);
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 0.5rem;
+}
+button.primary {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+button:hover { filter: brightness(0.95); }
+
+/* In-progress state for form-submit buttons. progress.js prepends
+   .btn-spinner inside the clicked button on submit; the button stays
+   styled until the page navigates and re-renders. pointer-events
+   prevents double-submits without using `disabled`, which would strip
+   the submitter's name/value from the form data on POSTs. */
+button.is-working {
+  pointer-events: none;
+  opacity: 0.9;
+  cursor: progress;
+}
+.btn-spinner {
+  display: inline-block;
+  width: 0.85em; height: 0.85em;
+  margin-right: 0.45em;
+  border: 2px solid currentColor;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.15em;
+  animation: btn-spinner-rotate 0.65s linear infinite;
+}
+@keyframes btn-spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.error {
+  background: var(--warn-bg); color: var(--warn-fg);
+  padding: 0.6rem 0.9rem; border-radius: 4px; margin: 1rem 0;
+}
+
+fieldset {
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0.5rem 1rem 1rem;
+  margin: 1rem 0;
+}
+fieldset legend { padding: 0 0.5rem; color: var(--muted); }
+
+.diff-source textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+.threshold-choice .lede { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.threshold-choice .radio { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.35rem 0; cursor: pointer; }
+.threshold-choice .radio input { margin-top: 0.3rem; }
+.threshold-choice .radio span { font-weight: normal; }
+.threshold-choice .radio strong { color: var(--accent-strong); }
+
+/* commit browser */
+.commit-browser .repo-control {
+  display: flex; align-items: end; gap: 0.75rem; margin-bottom: 0.75rem;
+}
+.commit-browser .repo-control label { flex: 1; margin: 0; }
+.commit-browser .repo-reload { margin: 0; }
+
+.commit-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-direction: column; gap: 0.5rem; }
+
+.commit-card {
+  background: white;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  overflow: hidden;  /* clip inner squared corners to the rounded outer */
+  transition: border-color 0.12s;
+}
+.commit-card:hover { border-color: var(--accent); }
+
+/* The clickable header — sha, author, date, subject. Submits the
+   launcher form with this commit's SHA. */
+.commit-pick {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  font: inherit;
+  color: var(--fg);
+  display: block;
+  transition: background-color 0.12s;
+}
+.commit-pick:hover { background: #f6f8fb; }
+.commit-pick.is-working { background: #f6f8fb; }
+
+.commit-pick .commit-meta {
+  display: flex; gap: 0.75rem; align-items: baseline;
+  font-size: 0.78rem; color: var(--muted); margin-bottom: 0.25rem;
+}
+.commit-pick .commit-sha {
+  background: #eef0f3; padding: 0.05em 0.4em; border-radius: 3px;
+  font-size: 0.85em; color: var(--accent-strong);
+}
+.commit-pick .commit-author { font-weight: 500; }
+.commit-pick .commit-subject {
+  font-weight: 600; color: var(--accent-strong); margin: 0.1rem 0;
+}
+
+/* Toggle bar — reveals the body without picking the commit. */
+.commit-expand {
+  width: 100%;
+  text-align: left;
+  background: #fafafa;
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: block;
+  transition: background-color 0.12s, color 0.12s;
+}
+.commit-expand:hover { background: var(--rule); color: var(--fg); }
+
+.commit-body {
+  border-top: 1px solid var(--rule);
+  padding: 0.75rem 0.85rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.commit-body :is(p, ul, ol) { margin: 0.3rem 0; }
+.commit-body > :first-child { margin-top: 0; }
+.commit-body > :last-child { margin-bottom: 0; }
+
+.alt-sources { margin-top: 1.5rem; border-top: 1px solid var(--rule); padding-top: 0.5rem; }
+.alt-sources summary { cursor: pointer; color: var(--muted); padding: 0.5rem 0; font-weight: 500; }
+.alt-sources .lede { font-size: 0.88rem; }
+
+.commit-error { margin: 0.5rem 0; }
+.commit-error p { margin: 0.4rem 0 0; }
+
+/* dual-monitor: "Pop context to new window" affordance + standalone view */
+.region-title-row {
+  display: flex; align-items: baseline; gap: 1rem;
+  justify-content: space-between; flex-wrap: wrap;
+}
+.region-title-row h1 { margin: 0; }
+.pop-context-btn {
+  background: white; color: var(--accent-strong);
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin: 0;
+  white-space: nowrap;
+}
+.pop-context-btn:hover { background: #f6f8fb; border-color: var(--accent); }
+
+.context-window .context-header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5rem; margin-bottom: 1rem;
+}
+.context-window .context-header h1 { margin: 0 0 0.25rem; }
+.context-window .context-header .lede { margin: 0; font-size: 0.85rem; }
+
+/* hypothesis tabs */
+.tabs { border: 1px solid var(--rule); border-radius: 4px; background: white; }
+.tab-strip {
+  display: flex; gap: 0; border-bottom: 1px solid var(--rule);
+  padding: 0.5rem 0.5rem 0;
+}
+.tab-button {
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  margin: 0 0.25rem -1px; padding: 0.5rem 0.9rem;
+  border-radius: 4px 4px 0 0; color: var(--muted);
+}
+.tab-button.is-active {
+  background: white;
+  border-color: var(--rule);
+  color: var(--fg); font-weight: 600;
+}
+.tab-panel { display: none; padding: 1rem 1.25rem; }
+.tab-panel.is-active { display: block; }
+.actions { padding: 1rem; border-top: 1px solid var(--rule); display: flex; justify-content: flex-end; }
+
+/* hunks and code */
+pre.hunk {
+  background: #1e2330; color: #d8dee9; padding: 0.75rem 1rem;
+  border-radius: 4px; overflow-x: auto; font-size: 0.85rem;
+}
+pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+.locked-text, .reading {
+  background: white;
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0.75rem 1rem;
+}
+
+/* .prose is applied to any container whose contents come from the markdown
+   filter. Markdown emits real <p> / <ul> / <code> / <pre> so we don't want
+   white-space: pre-wrap, which would double-space everything. */
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose p { margin: 0.5rem 0; }
+.prose ul, .prose ol { margin: 0.5rem 0; padding-left: 1.25rem; }
+.prose li { margin: 0.15rem 0; }
+.prose code {
+  background: #eef0f3; padding: 0.05em 0.35em;
+  border-radius: 3px; font-size: 0.85em;
+}
+.prose pre {
+  background: #1e2330; color: #d8dee9; padding: 0.6rem 0.85rem;
+  border-radius: 4px; overflow-x: auto; font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+.prose pre code {
+  background: transparent; padding: 0; font-size: inherit; color: inherit;
+}
+.prose blockquote {
+  border-left: 3px solid var(--rule); padding-left: 0.75rem;
+  color: var(--muted); margin: 0.5rem 0;
+}
+
+/* region chip strip */
+.region-strip {
+  display: flex; gap: 0.5rem; margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--rule);
+}
+.region-chip {
+  display: inline-block; padding: 0.3rem 0.7rem;
+  border: 1px solid var(--rule); border-radius: 999px;
+  text-decoration: none; color: var(--fg); background: white;
+  font-size: 0.85rem;
+}
+.region-chip.is-active { background: var(--accent); color: white; border-color: var(--accent); }
+.region-chip.status-closed { background: var(--closed-bg); }
+
+/* two-pane region surface */
+.two-pane {
+  display: grid; gap: 1.5rem;
+  /* minmax(0, 1fr) instead of 1fr — without it, grid columns refuse to
+     shrink below their content's min-content size, so a wide hunk pre
+     bullies the chat pane down to one-word-per-line. min-content here
+     is the longest unbreakable diff line. */
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr);
+}
+@media (max-width: 800px) { .two-pane { grid-template-columns: 1fr; } }
+
+.reading-pane, .action-pane {
+  background: white;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 1rem 1.25rem;
+  min-width: 0;  /* belt-and-suspenders for the minmax above */
+}
+
+.judge-fail {
+  background: var(--warn-bg); color: var(--warn-fg);
+  padding: 0.6rem 0.9rem; border-radius: 4px; margin-bottom: 1rem;
+}
+
+.thread-container { display: flex; flex-direction: column; }
+.thread {
+  list-style: none; padding: 0; margin: 1rem 0;
+  max-height: 50vh; overflow-y: auto;
+  border: 1px solid var(--rule); border-radius: 4px;
+  background: white; padding: 0.75rem;
+}
+.thread:empty::before {
+  content: "Send a message to start the conversation.";
+  color: var(--muted); font-style: italic;
+}
+.turn {
+  border-left: 3px solid var(--rule); padding: 0.5rem 0.75rem; margin-bottom: 0.75rem;
+  background: #f3f3f3; border-radius: 0 4px 4px 0;
+}
+.turn:last-child { margin-bottom: 0; }
+.turn strong { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); display: block; margin-bottom: 0.25rem; }
+.turn-engineer { border-left-color: var(--accent); }
+.turn-model { background: #eef2f8; }
+
+.composer { margin-top: 1rem; }
+.composer-actions { display: flex; align-items: center; gap: 0.75rem; }
+.htmx-indicator { display: none; color: var(--muted); font-style: italic; }
+.htmx-request .htmx-indicator { display: inline; }
+.htmx-request .composer textarea, .htmx-request .composer button {
+  opacity: 0.6;
+}
+
+.dialogue-exits { margin-top: 1.5rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+.dialogue-exits summary { cursor: pointer; font-weight: 500; padding: 0.5rem 0; }
+.exit-option {
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0.75rem 1rem; margin: 0.75rem 0;
+  background: #fafafa;
+}
+.exit-option h3 { font-size: 0.95rem; color: var(--fg); text-transform: none; letter-spacing: 0; margin-top: 0; }
+.exit-option .lede { font-size: 0.9rem; margin: 0.25rem 0 0.75rem; }
+.override-choices { display: flex; flex-direction: column; gap: 0.5rem; }
+.override-btn {
+  text-align: left; padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--rule); border-radius: 4px;
+  cursor: pointer;
+}
+.override-btn:hover { border-color: var(--accent); background: #f6f8fb; }
+.override-btn strong {
+  display: block; color: var(--accent-strong); font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+.override-btn span { color: var(--muted); font-size: 0.9rem; }
+
+.choice-btn { width: 100%; text-align: left; margin: 0.5rem 0; padding: 0.75rem 1rem; }
+.deferred-note { font-style: italic; color: var(--warn-fg); }
+.region-chip.is-deferred { background: var(--warn-bg); color: var(--warn-fg); }
+.region-chip.is-deferred.is-active { background: var(--warn-fg); color: white; border-color: var(--warn-fg); }
+
+/* summary */
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 1rem 0 2rem; }
+.meta dt { font-weight: 600; color: var(--muted); }
+.region-summary { border: 1px solid var(--rule); border-radius: 4px; background: white; padding: 1rem 1.25rem; margin: 1rem 0; }
+
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }

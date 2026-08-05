@@ -1,0 +1,94 @@
+{# Conversation thread + composer + exits. Rendered both on initial page
+   load (inside region.html) and as the HTMX swap target when a turn lands
+   (returned by POST /dialogue). The form itself swaps the whole thread
+   container, so the new model turn is in the same outerHTML response. #}
+<div id="thread-container" class="thread-container">
+  {% if latest_fail %}
+    <div class="judge-fail">
+      <strong>Judge denied closure.</strong>
+      <div class="prose">{{ ("Not yet covered: " ~ latest_fail.missing_aspects) | markdown }}</div>
+    </div>
+  {% endif %}
+
+  <ol class="thread" id="thread">
+    {% for t in turns %}
+      <li class="turn turn-{{ t.role.value }}">
+        <strong>{{ t.role.value }}</strong>
+        <div class="turn-body prose">{{ t.body | markdown }}</div>
+      </li>
+    {% endfor %}
+  </ol>
+
+  <form class="composer"
+        hx-post="/sessions/{{ session_id }}/regions/{{ region.id }}/dialogue"
+        hx-target="#thread-container"
+        hx-swap="outerHTML"
+        hx-disabled-elt="find textarea, find button"
+        hx-indicator="#composer-busy">
+    <label>
+      <span>Message to the model</span>
+      <textarea name="message" rows="3" required
+                placeholder="Ask a question, push back, or restate to confirm understanding..."></textarea>
+    </label>
+    <div class="composer-actions">
+      <button type="submit" class="primary">Send</button>
+      <span id="composer-busy" class="htmx-indicator">thinking…</span>
+    </div>
+  </form>
+
+  <details class="dialogue-exits">
+    <summary>I'm ready to close this region</summary>
+
+    <article class="exit-option">
+      <h3>Try again — revise my teach-back and re-run the judge</h3>
+      <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/revise">
+        <label>
+          <span>Revised teach-back</span>
+          <textarea name="body" rows="5" required
+                    placeholder="Restate your understanding now, addressing what the judge flagged..."></textarea>
+        </label>
+        <button type="submit">Submit revised teach-back</button>
+      </form>
+    </article>
+
+    <article class="exit-option">
+      <h3>Disagree with the reading</h3>
+      <p class="lede">Use this if you think the model's reading is itself wrong.</p>
+      <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/disagree">
+        <label>
+          <span>Reason (optional)</span>
+          <textarea name="reason" rows="3"
+                    placeholder="What is the reading missing or getting wrong?"></textarea>
+        </label>
+        <button type="submit">Close with disagreement</button>
+      </form>
+    </article>
+
+    <article class="exit-option">
+      <h3>Not worth this depth — override the engagement demand</h3>
+      <p class="lede">
+        Use this if you accept the reading but the coverage being demanded
+        exceeds what understanding this region is worth. Pick the axis that
+        best describes why.
+      </p>
+      <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/override" class="override-choices">
+        <button type="submit" name="reason" value="value" class="override-btn">
+          <strong>Value</strong>
+          <span>This isn't worth engaging with at this depth. The stakes of
+            understanding it are low.</span>
+        </button>
+        <button type="submit" name="reason" value="toil" class="override-btn">
+          <strong>Toil</strong>
+          <span>Too much volume to cover for what it's worth. Many small
+            interacting points, none individually important.</span>
+        </button>
+        <button type="submit" name="reason" value="difficulty" class="override-btn">
+          <strong>Difficulty</strong>
+          <span>Harder than I want to engage with right now. Not that it
+            doesn't matter, but the engagement cost is too high for this
+            session.</span>
+        </button>
+      </form>
+    </article>
+  </details>
+</div>

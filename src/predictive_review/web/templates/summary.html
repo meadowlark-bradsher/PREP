@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Session summary — Predictive Review{% endblock %}
+{% block content %}
+<section class="summary">
+  <h1>Session complete</h1>
+  <dl class="meta">
+    <dt>Session</dt><dd><code>{{ session.id }}</code></dd>
+    <dt>Engineer</dt><dd>{{ session.engineer_identifier }}</dd>
+    <dt>Selector</dt><dd>{{ session.selector_name }} v{{ session.selector_version }}</dd>
+    {% if session.source_commit %}
+      <dt>Source commit</dt><dd><code>{{ session.source_commit }}</code></dd>
+    {% elif session.source_range %}
+      <dt>Source range</dt><dd><code>{{ session.source_range }}</code></dd>
+    {% endif %}
+  </dl>
+
+  {% for item in per_region %}
+    {% set r = item.region %}
+    <article class="region-summary">
+      <h2>Region {{ r.ordinal + 1 }}: {{ r.structural_label }}</h2>
+      <p>
+        <strong>Closure mode:</strong>
+        {{ r.closure_mode.value if r.closure_mode else "—" }} ·
+        <strong>Disposition:</strong>
+        {{ item.disposition.status.value if item.disposition else "—" }}
+      </p>
+
+      {% if r.acknowledgment_note %}
+        <p><em>Acknowledgment note:</em> {{ r.acknowledgment_note }}</p>
+      {% endif %}
+      {% if r.disagreement_reason %}
+        <p><em>Disagreement reason:</em> {{ r.disagreement_reason }}</p>
+      {% endif %}
+      {% if r.override_reason %}
+        <p><em>Override reason:</em> {{ r.override_reason.value }}</p>
+      {% endif %}
+      {% if item.disposition and item.disposition.justification %}
+        <p><em>Redesign justification:</em> {{ item.disposition.justification }}</p>
+      {% endif %}
+
+      <details>
+        <summary>Full artifact</summary>
+        <h3>Hunk</h3><pre class="hunk"><code>{{ r.hunk_text }}</code></pre>
+        <h3>Hypothesis</h3><div class="locked-text prose">{{ item.hypothesis | markdown }}</div>
+        <h3>Reading</h3><div class="reading prose">{{ item.reading | markdown }}</div>
+        {% if item.reconciliation %}
+          <h3>Reconciliation</h3><div class="locked-text prose">{{ item.reconciliation | markdown }}</div>
+        {% endif %}
+        {% if item.turns %}
+          <h3>Dialogue</h3>
+          <ol class="thread">
+            {% for t in item.turns %}
+              <li class="turn turn-{{ t.role.value }}">
+                <strong>{{ t.role.value }}</strong>
+                <div class="prose">{{ t.body | markdown }}</div>
+              </li>
+            {% endfor %}
+          </ol>
+        {% endif %}
+        {% if item.attempts %}
+          <h3>Closure attempts</h3>
+          <ol>
+            {% for a in item.attempts %}
+              <li>
+                <strong>#{{ a.attempt_number }}</strong> — {{ a.verdict.value }}
+                {% if a.missing_aspects %}<br><em>Missing: {{ a.missing_aspects }}</em>{% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+        {% endif %}
+      </details>
+    </article>
+  {% endfor %}
+
+  <p><a href="/launch">Start another session</a></p>
+</section>
+{% endblock %}

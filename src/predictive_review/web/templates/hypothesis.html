@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Hypothesis phase — Predictive Review{% endblock %}
+{% block content %}
+<section class="hypothesis">
+  <h1>Hypothesis phase</h1>
+  <p class="lede">
+    Write a hypothesis for each region — what the code does, why this
+    approach was chosen. You can move freely between regions and revise.
+    Reveal is locked until every region has a hypothesis.
+  </p>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/sessions/{{ session_id }}/hypothesis" id="hypothesis-form">
+    <div class="tabs">
+      <nav class="tab-strip" role="tablist">
+        {% for r in regions %}
+          <button type="button" class="tab-button {% if loop.first %}is-active{% endif %}"
+                  data-tab-target="tab-{{ r.id }}" role="tab">
+            Region {{ r.ordinal + 1 }}
+          </button>
+        {% endfor %}
+      </nav>
+
+      {% for r in regions %}
+        <article class="tab-panel {% if loop.first %}is-active{% endif %}" id="tab-{{ r.id }}" role="tabpanel">
+          <h2>{{ r.structural_label }}</h2>
+          <pre class="hunk"><code>{{ r.hunk_text }}</code></pre>
+          <label>
+            <span>Your hypothesis</span>
+            <textarea name="hypothesis_{{ r.id }}" rows="8"
+                      placeholder="What this code does, why this approach was chosen, anything you're unsure about...">{{ drafts[r.id] }}</textarea>
+          </label>
+        </article>
+      {% endfor %}
+    </div>
+
+    <div class="actions">
+      <button type="submit" name="action" value="save">Save drafts</button>
+      <button type="submit" name="action" value="reveal" class="primary">
+        Reveal — lock and generate readings
+      </button>
+    </div>
+  </form>
+</section>
+
+<script>
+  // Tiny tab switcher — no framework needed.
+  document.querySelectorAll('.tab-button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.tabTarget;
+      document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('is-active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      document.getElementById(target).classList.add('is-active');
+    });
+  });
+</script>
+{% endblock %}

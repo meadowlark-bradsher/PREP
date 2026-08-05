@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Region {{ region.ordinal + 1 }} — Predictive Review{% endblock %}
+{% block content %}
+<section class="region">
+  <nav class="region-strip">
+    {% for r in regions %}
+      <a href="/sessions/{{ session_id }}/regions/{{ r.id }}"
+         class="region-chip {% if r.id == region.id %}is-active{% endif %} status-{{ r.status.value }} {% if r.is_deferred %}is-deferred{% endif %}">
+        {{ r.ordinal + 1 }}
+        {% if r.status.value == "closed" %}✓{% endif %}
+        {% if r.is_deferred %}⏸{% endif %}
+      </a>
+    {% endfor %}
+  </nav>
+
+  <div class="region-title-row">
+    <h1>{{ region.structural_label }}</h1>
+    <button type="button"
+            class="pop-context-btn"
+            data-pop-url="/sessions/{{ session_id }}/regions/{{ region.id }}/context"
+            data-pop-name="prep-context-{{ region.id }}"
+            title="Open the hunk + hypothesis + reading in a separate window, e.g. to drag to a second monitor.">
+      📋 Pop context to new window
+    </button>
+  </div>
+
+  <div class="two-pane">
+    <article class="reading-pane">
+      <h2>Hunk</h2>
+      <pre class="hunk"><code>{{ region.hunk_text }}</code></pre>
+
+      <h2>Your locked hypothesis</h2>
+      <div class="locked-text prose">{{ hypothesis | markdown }}</div>
+
+      <h2>Model's reading</h2>
+      <div class="reading prose">{{ reading | markdown }}</div>
+    </article>
+
+    <article class="action-pane">
+      {% if region.status.value == "awaiting_reveal_choice" %}
+        <h2>Choose your engagement</h2>
+        {% if region.is_deferred %}
+          <p class="lede deferred-note">
+            You previously deferred this region. Pick again — engage,
+            acknowledge, or defer to come back later.
+          </p>
+        {% else %}
+          <p class="lede">
+            You've seen your hypothesis and the model's reading. Choose how
+            deep to go on this region.
+          </p>
+        {% endif %}
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/engage">
+          <button type="submit" class="primary choice-btn">
+            <strong>Engage</strong> — write a reconciliation, run the judge
+          </button>
+        </form>
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/acknowledge">
+          <label>
+            <span>Note (required)</span>
+            <input type="text" name="note" required
+                   placeholder="why are you not engaging deeply? e.g. routine null-check">
+          </label>
+          <button type="submit" class="choice-btn">
+            <strong>Acknowledge</strong> — close without engaging
+          </button>
+        </form>
+
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/defer">
+          <button type="submit" class="choice-btn">
+            <strong>Defer</strong> — revisit this region later
+          </button>
+        </form>
+
+      {% elif region.status.value == "awaiting_reconciliation" %}
+        <h2>Reconciliation</h2>
+        <p class="lede">
+          Write a reconciliation in your own words — what your hypothesis
+          got right, what it missed, your current understanding of the
+          choice.
+        </p>
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/reconcile">
+          <textarea name="body" rows="10" required>{{ reconciliation }}</textarea>
+          <button type="submit" class="primary">Submit reconciliation</button>
+        </form>
+
+      {% elif region.status.value == "in_dialogue" %}
+        <h2>Dialogue</h2>
+        <p class="lede">
+          The whole thread stays on this screen. The hunk and reading are
+          pinned on the left so you can refer to them at any time.
+        </p>
+        {% include "_thread.html" %}
+
+      {% elif region.status.value == "awaiting_disposition" %}
+        <h2>Disposition</h2>
+        <p class="lede">
+          The reconciliation loop is closed. Now: what's your decision about
+          the actual code change?
+        </p>
+        <form method="post" action="/sessions/{{ session_id }}/regions/{{ region.id }}/dispose">
+          <fieldset>
+            <legend>What do you want to do with this region's code?</legend>
+            <button type="submit" name="action" value="accept" class="primary">
+              Accept as-is
+            </button>
+            <label>
+              <span>Or flag for redesign (justification required)</span>
+              <textarea name="justification" rows="3"></textarea>
+            </label>
+            <button type="submit" name="action" value="flag">Flag for redesign</button>
+          </fieldset>
+        </form>
+
+      {% elif region.status.value == "closed" %}
+        <h2>Closed</h2>
+        <p>This region is closed. <a href="/sessions/{{ session_id }}">Continue session →</a></p>
+      {% else %}
+        <p>Region state: {{ region.status.value }}</p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+{% endblock %}
