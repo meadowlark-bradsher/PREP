@@ -40,7 +40,7 @@ class FirstNHunksSelector:
         return [
             Region(
                 structural_label=hunk.ref,
-                hunk=hunk,
+                content=hunk.to_content(),
                 selector_rationale={"selector": self.name, "strategy": "first-N"},
             )
             for hunk in selected

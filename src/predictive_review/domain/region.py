@@ -10,11 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .diff import Hunk
+from .content import RegionContent
 
 
 @dataclass(frozen=True)
 class Region:
     structural_label: str
-    hunk: Hunk
+    content: RegionContent
     selector_rationale: dict[str, Any] = field(default_factory=dict)

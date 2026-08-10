@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession, selectinload
@@ -43,7 +43,8 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 logger = logging.getLogger("predictive_review.sessions")
 
 from ..dialogue import DialogueManager, DialogueMessage, TurnRole
-from ..domain.diff import Hunk, parse_diff
+from ..domain.content import RegionContent
+from ..domain.diff import parse_diff
 from ..domain.region import Region as RegionView
 from ..judge import ClosureJudge, JudgeOutcome, JudgeVerdict
 from ..reading import ReadingGenerator
@@ -221,7 +222,7 @@ class SessionService:
                         session_id=session.id,
                         ordinal=ordinal,
                         structural_label=region_view.structural_label,
-                        hunk=asdict(region_view.hunk),
+                        content=region_view.content.to_dict(),
                         selector_rationale=dict(region_view.selector_rationale),
                         status=RegionStatus.AWAITING_HYPOTHESIS,
                     )
@@ -589,7 +590,10 @@ class SessionService:
                     id=r.id,
                     ordinal=r.ordinal,
                     structural_label=r.structural_label,
-                    hunk_text=r.hunk.get("text", ""),
+                    # Presentation-facing field name is still hunk_text; it is
+                    # sourced from the widened content body. Renaming it belongs
+                    # to the presentation-layer generalization, kept separate here.
+                    hunk_text=(r.content or {}).get("body", ""),
                     status=r.status,
                     closure_mode=r.closure_mode,
                     is_deferred=r.is_deferred,
@@ -852,12 +856,15 @@ def _to_region_view(region: Region) -> RegionView:
 
     The reading generator and dialogue manager must not see hypotheses
     even though hypotheses live on the same ORM graph; constructing a
-    fresh RegionView with only the persisted code metadata guarantees
-    the LLM call has no traversal path to them.
+    fresh RegionView with only the persisted content guarantees the LLM
+    call has no traversal path to them.
+
+    RegionContent.from_dict is kind-agnostic, so this rehydration never
+    changes as new content kinds (glossary terms, concepts) are added.
     """
     return RegionView(
         structural_label=region.structural_label,
-        hunk=Hunk(**region.hunk),
+        content=RegionContent.from_dict(region.content),
         selector_rationale=region.selector_rationale or {},
     )
 

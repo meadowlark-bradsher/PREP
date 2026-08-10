@@ -49,7 +49,7 @@ class ReadingGenerator:
     def generate(self, region: Region) -> ReadingResult:
         user_content = (
             f"Region label: {region.structural_label}\n\n"
-            f"Code:\n```\n{region.hunk.text}\n```"
+            f"Code:\n```\n{region.content.body}\n```"
         )
         completion = self._llm.complete(
             system=self._system,

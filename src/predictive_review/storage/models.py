@@ -217,7 +217,11 @@ class Region(Base):
     session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"))
     ordinal: Mapped[int] = mapped_column(Integer)
     structural_label: Mapped[str] = mapped_column(Text)
-    hunk: Mapped[dict] = mapped_column(JSON)
+    # Widened carrier: {"kind", "body", "metadata"}. A code_hunk stores diff
+    # geometry under metadata; other kinds (glossary_term, concept) store
+    # their own. Was a diff-only `hunk` column before the RegionContent
+    # widening (expand: add+backfill content; contract: drop hunk).
+    content: Mapped[dict] = mapped_column(JSON)
     selector_rationale: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[RegionStatus] = mapped_column(
         Enum(RegionStatus), default=RegionStatus.AWAITING_HYPOTHESIS

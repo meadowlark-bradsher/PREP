@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 from unidiff import PatchSet
 
+from .content import RegionContent
+
 
 @dataclass(frozen=True)
 class Hunk:
@@ -24,6 +26,24 @@ class Hunk:
     def ref(self) -> str:
         end = self.new_start + max(self.new_count, 1) - 1
         return f"{self.file_path}@{self.new_start}-{end}"
+
+    def to_content(self) -> RegionContent:
+        """Widen this diff hunk into the abstract carrier a Region holds.
+
+        Diff geometry becomes opaque metadata; the core only reads ``body``.
+        """
+        return RegionContent(
+            kind="code_hunk",
+            body=self.text,
+            metadata={
+                "file_path": self.file_path,
+                "ref": self.ref,
+                "old_start": self.old_start,
+                "old_count": self.old_count,
+                "new_start": self.new_start,
+                "new_count": self.new_count,
+            },
+        )
 
 
 @dataclass(frozen=True)

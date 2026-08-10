@@ -81,7 +81,7 @@ class LLMJudgmentSelector:
             regions.append(
                 Region(
                     structural_label=str(raw["structural_label"]).strip(),
-                    hunk=diff.hunks[idx],
+                    content=diff.hunks[idx].to_content(),
                     selector_rationale={
                         "rationale": str(raw.get("rationale", "")).strip(),
                         "prompt_version": self._prompt_version,

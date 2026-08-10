@@ -80,7 +80,7 @@ def test_first_n_hunks_selector_returns_regions() -> None:
     assert 2 <= len(regions) <= 4
     for r in regions:
         assert r.structural_label
-        assert r.hunk.text
+        assert r.content.body
         assert r.selector_rationale["selector"] == "first_n_hunks"
 
 
