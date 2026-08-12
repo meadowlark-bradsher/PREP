@@ -89,7 +89,7 @@ def test_selector_calls_client_with_prompt_and_numbered_hunks() -> None:
 
     assert len(regions) == 1
     assert regions[0].structural_label == "the new() function"
-    assert regions[0].hunk == diff.hunks[0]
+    assert regions[0].content == diff.hunks[0].to_content()
     assert regions[0].selector_rationale["rationale"] == "introduces a new public API"
     assert regions[0].selector_rationale["model_id"] == "claude-test"
 
@@ -168,7 +168,7 @@ def test_reading_generator_passes_region_to_client_and_returns_result() -> None:
     assert call["model"] == "claude-sonnet-x"
     user_content = call["messages"][0].content
     assert region.structural_label in user_content
-    assert region.hunk.text in user_content
+    assert region.content.body in user_content
 
     assert result.body == "This function retries on 429 only."
     assert result.model_id == "claude-sonnet-x"
