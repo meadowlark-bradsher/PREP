@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -360,8 +360,17 @@ class ClosureAttempt(Base):
 
     `teach_back_statement` is captured per attempt because the engineer may
     revise it between attempts during dialogue. `missing_aspects` is set on
-    FAIL with the judge's explanation of what the reading covers that the
-    statement does not.
+    FAIL with what the reading covers that the statement does not.
+
+    It has two shapes. When the region declared aspects, it is a list of
+    aspect ids the judge was given; otherwise it is a sentence of prose.
+    `aspect_scope` is the discriminator: non-NULL exactly when the judge ran
+    in structured mode, and holding the ids it was allowed to name.
+
+    `criterion` records the load type in scope for the attempt. Together
+    with the verdict that is the provenance contract invariant 7 requires:
+    a PASS is `teach-back-verified@<criterion>`, never bare, so a ledger
+    cannot later promote scope-narrowed evidence as whole-member evidence.
     """
 
     __tablename__ = "closure_attempts"
@@ -371,7 +380,9 @@ class ClosureAttempt(Base):
     attempt_number: Mapped[int] = mapped_column(Integer)
     teach_back_statement: Mapped[str] = mapped_column(Text)
     verdict: Mapped[ClosureVerdict] = mapped_column(Enum(ClosureVerdict))
-    missing_aspects: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    missing_aspects: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    criterion: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    aspect_scope: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     judge_model_id: Mapped[str] = mapped_column(String(64))
     judge_prompt_version: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

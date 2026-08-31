@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 
 from .content_sources import DiffSource, ManifestError, ManifestSource
-from .judge import JudgeOutcome
+from .judge import JudgeOutcome, format_missing_aspects
 from .selectors.manifest import UnknownCriterion
 from .logging_config import configure_logging
 from .sessions.service import RegionSnapshot, SessionService
@@ -578,7 +578,10 @@ def _run_region_reconciliation(
     if result.verdict is JudgeOutcome.PASS:
         click.secho("Closure: PASS", fg="green")
     else:
-        click.secho(f"Closure: FAIL — {result.missing_aspects}", fg="yellow")
+        click.secho(
+        f"Closure: FAIL — {format_missing_aspects(result.missing_aspects)}",
+        fg="yellow",
+    )
         _run_dialogue_loop(service, session_id, region)
 
 
@@ -724,7 +727,10 @@ def _submit_revised_teach_back(
     if result.verdict is JudgeOutcome.PASS:
         click.secho("Closure: PASS", fg="green")
         return True
-    click.secho(f"Closure: FAIL — {result.missing_aspects}", fg="yellow")
+    click.secho(
+        f"Closure: FAIL — {format_missing_aspects(result.missing_aspects)}",
+        fg="yellow",
+    )
     return False
 
 

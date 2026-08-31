@@ -191,3 +191,169 @@ def test_manifest_json_is_kept_as_the_session_source_text(service, session_facto
             select(Session.diff_text).where(Session.id == session_id)
         ).scalar_one()
     assert json.loads(stored)["contract"] == "load-bearing/0.1"
+
+
+# --- invariant 7: judge scope follows the criterion -------------------------
+
+
+def _reveal_and_reconcile(service, session_id, teach_back="it retries a bit"):
+    """Drive one region to a judged closure attempt."""
+    for r in service.list_regions(session_id):
+        service.save_hypothesis(session_id=session_id, region_id=r.id, body="a guess")
+    service.lock_and_reveal(session_id=session_id)
+    target = service.list_regions(session_id)[0]
+    service.engage_region(session_id=session_id, region_id=target.id)
+    return target, service.submit_reconciliation(
+        session_id=session_id, region_id=target.id, body=teach_back
+    )
+
+
+def _judge_for(service):
+    return service._judge  # the FakeClosureJudge the fixture installed
+
+
+def test_aspects_are_filtered_by_criterion_before_reaching_the_judge(
+    session_factory,
+) -> None:
+    judge = FakeClosureJudge()
+    service = SessionService(
+        session_factory=session_factory,
+        selector_registry=default_registry,
+        reading_generator=FakeReadingGenerator(),
+        closure_judge=judge,
+        dialogue_manager=FakeDialogueManager(),
+    )
+    session_id = _submit_manifest(service, criterion="correctness")
+    _reveal_and_reconcile(service, session_id)
+
+    seen = judge.aspects_seen[-1]
+    # auth/token-refresh declares retry-bound (correctness), churn-hotspot
+    # (churn-90d) and failure-modes-distinct (universal).
+    assert seen is not None
+    assert "retry-bound" in seen
+    assert "failure-modes-distinct" in seen, "universal aspects always apply"
+    assert "churn-hotspot" not in seen, "other criteria must not leak in"
+
+
+def test_a_different_criterion_yields_a_different_aspect_scope(
+    session_factory,
+) -> None:
+    judge = FakeClosureJudge()
+    service = SessionService(
+        session_factory=session_factory,
+        selector_registry=default_registry,
+        reading_generator=FakeReadingGenerator(),
+        closure_judge=judge,
+        dialogue_manager=FakeDialogueManager(),
+    )
+    session_id = _submit_manifest(service, criterion="churn-90d")
+    _reveal_and_reconcile(service, session_id)
+
+    seen = judge.aspects_seen[-1]
+    assert seen is not None
+    # churn-90d orders cache/lru-read first, whose aspects are
+    # read-promotes (correctness) and none-ambiguity (universal).
+    assert "none-ambiguity" in seen
+    assert "read-promotes" not in seen
+
+
+def test_diff_regions_pass_no_aspects(session_factory) -> None:
+    judge = FakeClosureJudge()
+    service = SessionService(
+        session_factory=session_factory,
+        selector_registry=default_registry,
+        reading_generator=FakeReadingGenerator(),
+        closure_judge=judge,
+        dialogue_manager=FakeDialogueManager(),
+    )
+    session_id = service.submit(
+        source=DiffSource(SAMPLE_DIFF),
+        engineer_identifier="meadowlark",
+        selector_name="first_n_hunks",
+        layout=ReconciliationLayout.INLINE_HUNK,
+    )
+    _reveal_and_reconcile(service, session_id)
+
+    assert judge.aspects_seen[-1] is None, "prose mode is untouched for code hunks"
+
+
+# --- provenance: criterion and aspect_scope on the attempt ------------------
+
+
+def test_closure_attempt_records_criterion_and_aspect_scope(
+    service, session_factory
+) -> None:
+    from predictive_review.storage.models import ClosureAttempt
+
+    session_id = _submit_manifest(service, criterion="correctness")
+    _reveal_and_reconcile(service, session_id)
+
+    with session_factory() as db:
+        attempt = db.execute(select(ClosureAttempt)).scalars().first()
+
+    assert attempt.criterion == "correctness"
+    assert attempt.aspect_scope is not None
+    assert "retry-bound" in attempt.aspect_scope
+    assert "churn-hotspot" not in attempt.aspect_scope
+
+
+def test_diff_attempt_records_no_criterion_and_no_scope(
+    service, session_factory
+) -> None:
+    from predictive_review.storage.models import ClosureAttempt
+
+    session_id = service.submit(
+        source=DiffSource(SAMPLE_DIFF),
+        engineer_identifier="meadowlark",
+        selector_name="first_n_hunks",
+        layout=ReconciliationLayout.INLINE_HUNK,
+    )
+    _reveal_and_reconcile(service, session_id)
+
+    with session_factory() as db:
+        attempt = db.execute(select(ClosureAttempt)).scalars().first()
+
+    assert attempt.criterion is None
+    assert attempt.aspect_scope is None, "NULL scope is the prose-mode discriminator"
+
+
+def test_structured_missing_aspects_survives_the_round_trip(
+    service, session_factory
+) -> None:
+    from predictive_review.storage.models import ClosureAttempt
+
+    session_id = _submit_manifest(service, criterion="correctness")
+    _, result = _reveal_and_reconcile(service, session_id)
+
+    assert isinstance(result.missing_aspects, list)
+    with session_factory() as db:
+        attempt = db.execute(select(ClosureAttempt)).scalars().first()
+    assert isinstance(attempt.missing_aspects, list)
+    assert set(attempt.missing_aspects) <= set(attempt.aspect_scope)
+
+
+def test_hypothesis_is_still_stripped_in_member_mode(session_factory) -> None:
+    """The type-gate holds regardless of content kind."""
+    from predictive_review.sessions.service import _to_region_view
+    from predictive_review.storage.models import Region as OrmRegion
+
+    judge = FakeClosureJudge()
+    service = SessionService(
+        session_factory=session_factory,
+        selector_registry=default_registry,
+        reading_generator=FakeReadingGenerator(),
+        closure_judge=judge,
+        dialogue_manager=FakeDialogueManager(),
+    )
+    session_id = _submit_manifest(service)
+    for r in service.list_regions(session_id):
+        service.save_hypothesis(
+            session_id=session_id, region_id=r.id, body="SECRET PRIOR"
+        )
+
+    with session_factory() as db:
+        orm_region = db.execute(select(OrmRegion)).scalars().first()
+        view = _to_region_view(orm_region)
+
+    assert not hasattr(view, "hypothesis")
+    assert "SECRET PRIOR" not in repr(view)

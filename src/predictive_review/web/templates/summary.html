@@ -63,7 +63,7 @@
             {% for a in item.attempts %}
               <li>
                 <strong>#{{ a.attempt_number }}</strong> — {{ a.verdict.value }}
-                {% if a.missing_aspects %}<br><em>Missing: {{ a.missing_aspects }}</em>{% endif %}
+                {% if a.missing_aspects %}<br><em>Missing: {{ a.missing_aspects | missing_aspects }}</em>{% endif %}
               </li>
             {% endfor %}
           </ol>

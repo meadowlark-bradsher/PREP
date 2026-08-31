@@ -44,6 +44,7 @@ logger = logging.getLogger("predictive_review.sessions")
 
 from ..content_sources.base import ContentSource
 from ..dialogue import DialogueManager, DialogueMessage, TurnRole
+from ..domain.aspect import Aspect
 from ..domain.content import RegionContent
 from ..domain.region import Region as RegionView
 from ..judge import ClosureJudge, JudgeOutcome, JudgeVerdict
@@ -84,7 +85,7 @@ from .errors import (
 @dataclass(frozen=True)
 class ClosureAttemptResult:
     verdict: JudgeOutcome
-    missing_aspects: str | None
+    missing_aspects: list[str] | str | None
     attempt_number: int
 
 
@@ -121,7 +122,7 @@ class ClosureAttemptSnapshot:
     attempt_number: int
     teach_back_statement: str
     verdict: "ClosureVerdict"
-    missing_aspects: str | None
+    missing_aspects: list[str] | str | None
 
 
 @dataclass(frozen=True)
@@ -358,6 +359,7 @@ class SessionService:
                 teach_back_statement=body,
                 attempt_number=1,
                 engagement_threshold=session.engagement_threshold,
+                criterion=session.criterion,
             )
 
     def dialogue_turn(
@@ -439,6 +441,7 @@ class SessionService:
                 teach_back_statement=body,
                 attempt_number=next_number,
                 engagement_threshold=session.engagement_threshold,
+                criterion=session.criterion,
             )
 
     def close_with_disagreement(
@@ -832,11 +835,14 @@ class SessionService:
         teach_back_statement: str,
         attempt_number: int,
         engagement_threshold: EngagementThreshold,
+        criterion: str | None = None,
     ) -> ClosureAttemptResult:
+        aspects = _aspects_in_scope(region, criterion)
         verdict: JudgeVerdict = self._judge.judge(
             reading_body=reading_body,
             teach_back_statement=teach_back_statement,
             engagement_threshold=engagement_threshold,
+            aspects=aspects,
         )
         db.add(
             ClosureAttempt(
@@ -845,6 +851,11 @@ class SessionService:
                 teach_back_statement=teach_back_statement,
                 verdict=ClosureVerdict(verdict.outcome.value),
                 missing_aspects=verdict.missing_aspects,
+                criterion=criterion,
+                # Non-NULL exactly when the judge ran structured, and
+                # holding what it was permitted to name. Invariant 7's
+                # provenance needs both halves to be reconstructable.
+                aspect_scope=[a.id for a in aspects] if aspects else None,
                 judge_model_id=verdict.model_id,
                 judge_prompt_version=verdict.prompt_version,
             )
@@ -862,6 +873,40 @@ class SessionService:
             missing_aspects=verdict.missing_aspects,
             attempt_number=attempt_number,
         )
+
+
+def _aspects_in_scope(region: Region, criterion: str | None) -> list[Aspect] | None:
+    """Narrow a region's declared aspects to the session's criterion.
+
+    Contract invariant 7: the judge sees only aspects that serve the
+    active criterion (or serve every criterion), so a PASS means
+    "covered at this scope" rather than "covered entirely".
+
+    Returns None — prose mode — in two cases that look different but are
+    the same thing: a region that declares no aspects at all (every diff
+    hunk), and a region whose aspects all belong to other criteria. In
+    both, there is no declared claim to score against at this scope, and
+    a structured FAIL would have to name an aspect that was never in
+    play.
+    """
+    content = RegionContent.from_dict(region.content)
+    declared = content.metadata.get("aspects")
+    if not declared:
+        return None
+
+    scoped = [
+        aspect
+        for aspect in (
+            Aspect(
+                id=str(raw["id"]),
+                claim=str(raw["claim"]),
+                criteria=tuple(raw.get("criteria") or ()),
+            )
+            for raw in declared
+        )
+        if aspect.applies_under(criterion)
+    ]
+    return scoped or None
 
 
 def _resolve_criterion(source: ContentSource, requested: str | None) -> str | None:
