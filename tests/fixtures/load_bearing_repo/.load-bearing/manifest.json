@@ -1,0 +1,139 @@
+{
+  "contract": "load-bearing/0.1",
+  "source_tree": "9c1f4a7b2e8d05366a4bb1c7f0e39d2a5b8c4e17",
+  "source_commit": "3f8a91c04d7e2b6518aa3c9d0f14e7b26d5a8039",
+  "generated_by": {
+    "agent": "claude-code",
+    "model": "claude-opus-5",
+    "at": "2026-08-31T09:14:22Z"
+  },
+  "criteria": [
+    {
+      "id": "correctness",
+      "description": "How much of the system's correctness rests on this region being right."
+    },
+    {
+      "id": "churn-90d",
+      "description": "How much this region has moved in the last 90 days."
+    },
+    {
+      "id": "identity",
+      "description": "What this software is, per its maintainers.",
+      "composed_of": ["correctness", "churn-90d"],
+      "weights": { "correctness": 0.7, "churn-90d": 0.3 }
+    }
+  ],
+  "default_criterion": "identity",
+  "members": [
+    {
+      "id": "auth/token-refresh",
+      "body_ref": "members/auth-token-refresh.md",
+      "anchors": [
+        {
+          "path": "src/auth.py",
+          "start": 14,
+          "end": 32,
+          "blob": "fc10af10f46dd67b192ff7ab15dacdeeb41da318",
+          "range_hash": "77a670373c2990248075687e3ac1bdaec2da6d2d46a687d358468b70703dc677"
+        }
+      ],
+      "scores": { "correctness": 0.9, "churn-90d": 0.3, "identity": 0.72 },
+      "rationale": "Two reverts this quarter; the 401 path was wrong twice.",
+      "aspects": [
+        {
+          "id": "retry-bound",
+          "criteria": ["correctness"],
+          "claim": "retries are capped at MAX_ATTEMPTS and the loop exits immediately on 401"
+        },
+        {
+          "id": "churn-hotspot",
+          "criteria": ["churn-90d"],
+          "claim": "the backoff schedule is the part that keeps being rewritten"
+        },
+        {
+          "id": "failure-modes-distinct",
+          "criteria": [],
+          "claim": "exhaustion and expiry raise different exceptions because callers respond differently"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "cache/eviction",
+      "body_ref": "members/cache-eviction.md",
+      "anchors": [
+        {
+          "path": "src/cache.py",
+          "start": 11,
+          "end": 22,
+          "blob": "423094d9b16df89ed714fc8a8f656224669924bb",
+          "range_hash": "d6980a5fa0e165c5fd9528d0800b58b3cf00175e42d5a8d389db35c81cfbd816"
+        }
+      ],
+      "scores": { "correctness": 0.4, "churn-90d": 0.95, "identity": 0.565 },
+      "rationale": "Rewritten three times; the eviction/insertion order is the recurring bug.",
+      "aspects": [
+        {
+          "id": "eviction-order",
+          "criteria": ["correctness"],
+          "claim": "eviction runs before insertion so occupancy never exceeds capacity"
+        },
+        {
+          "id": "capacity-bound",
+          "criteria": [],
+          "claim": "the bound holds at every observable moment, not merely at rest"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "cache/lru-read",
+      "body_ref": "members/cache-lru-read.md",
+      "anchors": [
+        {
+          "path": "src/cache.py",
+          "start": 24,
+          "end": 28,
+          "blob": "423094d9b16df89ed714fc8a8f656224669924bb",
+          "range_hash": "ead1ae4d746be7667786381848645a8657a8196750aa599bcc3e40e26a7eaefd"
+        }
+      ],
+      "scores": { "correctness": 0.5, "churn-90d": 0.85, "identity": 0.605 },
+      "rationale": "Read-path promotion is load-bearing for the LRU property and easy to drop.",
+      "aspects": [
+        {
+          "id": "read-promotes",
+          "criteria": ["correctness"],
+          "claim": "a hit promotes the key, which is what makes this an LRU rather than a FIFO"
+        },
+        {
+          "id": "none-ambiguity",
+          "criteria": [],
+          "claim": "a stored None is indistinguishable from an absent key at this layer"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "parser/tokenize",
+      "body": "# Tokenizer\n\nThe scanner walks the source once, emitting (kind, value) pairs. Quoted\nruns are emitted as a single VALUE token with the quotes stripped.\n\nAn unterminated quote raises rather than returning what it has. Returning\na partial token list here would push the failure to a caller that has no\nway to tell a truncated query from a short one.\n",
+      "anchors": [
+        {
+          "path": "src/parser.py",
+          "start": 6,
+          "end": 31,
+          "blob": "4c8f5597eaa7ebb92a190b3937fea1bd95dd16b8",
+          "range_hash": "ed6569512a0110f705bab52389967b6405eea7e6783b1e08f7fc36bbb8916c84"
+        }
+      ],
+      "aspects": [
+        {
+          "id": "unterminated-raises",
+          "criteria": [],
+          "claim": "an unterminated quote raises instead of returning a partial token list"
+        }
+      ],
+      "metadata": {}
+    }
+  ]
+}

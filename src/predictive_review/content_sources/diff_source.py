@@ -35,3 +35,12 @@ class DiffSource:
 
     def produce(self) -> list[RegionContent]:
         return [hunk.to_content() for hunk in self._diff.hunks]
+
+    @property
+    def stale_member_ids(self) -> tuple[str, ...]:
+        """Always empty. A diff is its own snapshot — nothing to go stale.
+
+        Present so the launch path can report staleness uniformly without
+        asking which kind of source it holds.
+        """
+        return ()
