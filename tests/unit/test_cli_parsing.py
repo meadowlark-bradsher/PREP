@@ -189,3 +189,84 @@ def test_run_rejects_invalid_threshold() -> None:
     )
     assert result.exit_code != 0
     assert "Invalid value for '--threshold'" in result.output
+
+
+# --- manifest source wiring -------------------------------------------------
+
+
+def test_build_source_requires_repo_for_manifest() -> None:
+    import click
+    import pytest as _pytest
+
+    from predictive_review.cli import _build_source
+
+    with _pytest.raises(click.UsageError, match="requires --repo"):
+        _build_source("manifest", None, None, None, None)
+
+
+def test_build_source_rejects_commit_with_manifest(tmp_path) -> None:
+    import click
+    import pytest as _pytest
+
+    from predictive_review.cli import _build_source
+
+    with _pytest.raises(click.UsageError, match="do not apply"):
+        _build_source("manifest", None, "HEAD", None, str(tmp_path))
+
+
+def test_build_source_rejects_repo_with_diff(tmp_path) -> None:
+    import click
+    import pytest as _pytest
+
+    from predictive_review.cli import _build_source
+
+    with _pytest.raises(click.UsageError, match="applies to --source manifest"):
+        _build_source("diff", None, None, None, str(tmp_path))
+
+
+def test_build_source_returns_manifest_source_without_git_provenance() -> None:
+    from pathlib import Path
+
+    from predictive_review.cli import _build_source
+    from predictive_review.content_sources import ManifestSource
+
+    fixture = Path(__file__).parent.parent / "fixtures" / "load_bearing_repo"
+    source, commit, rng = _build_source("manifest", None, None, None, str(fixture))
+
+    assert isinstance(source, ManifestSource)
+    # A manifest is content-addressed; commit provenance is display-only
+    # and deliberately not recorded on the session.
+    assert commit is None and rng is None
+
+
+def test_build_source_surfaces_manifest_errors_as_usage_errors(tmp_path) -> None:
+    import click
+    import pytest as _pytest
+
+    from predictive_review.cli import _build_source
+
+    with _pytest.raises(click.UsageError, match="load-bearing/manifest.json"):
+        _build_source("manifest", None, None, None, str(tmp_path))
+
+
+def test_report_staleness_names_every_excluded_member(capsys) -> None:
+    """Invariant 6: stale members are reported by id, never silently dropped."""
+    from pathlib import Path
+
+    from predictive_review.cli import _report_staleness
+    from predictive_review.content_sources import ManifestSource
+
+    fixture = Path(__file__).parent.parent / "fixtures" / "load_bearing_repo"
+    _report_staleness(ManifestSource(fixture))
+
+    out = capsys.readouterr().out
+    assert "1 member(s) stale" in out
+    assert "cache/eviction" in out
+
+
+def test_report_staleness_is_silent_for_a_diff_source(capsys) -> None:
+    from predictive_review.cli import _report_staleness
+    from predictive_review.content_sources import DiffSource
+
+    _report_staleness(DiffSource("diff --git a/x b/x\n"))
+    assert capsys.readouterr().out == ""

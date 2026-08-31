@@ -49,6 +49,7 @@ from ..domain.region import Region as RegionView
 from ..judge import ClosureJudge, JudgeOutcome, JudgeVerdict
 from ..reading import ReadingGenerator
 from ..selectors.base import SelectorContext
+from ..selectors.manifest import UnknownCriterion
 from ..selectors.registry import SelectorRegistry
 from ..storage.models import (
     ClosureAttempt,
@@ -105,6 +106,7 @@ class SessionSnapshot:
     layout: "ReconciliationLayout"
     source_commit: str | None
     source_range: str | None
+    criterion: str | None = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +177,7 @@ class SessionService:
         selector_name: str,
         layout: ReconciliationLayout,
         engagement_threshold: EngagementThreshold = EngagementThreshold.DEFAULT,
+        criterion: str | None = None,
         source_commit: str | None = None,
         source_range: str | None = None,
     ) -> str:
@@ -186,14 +189,20 @@ class SessionService:
         source_commit / source_range carry the diff's git provenance when
         the diff came from `git show <sha>` or `git diff <range>`; both
         are None when the diff was pasted.
+
+        criterion names the load type to order by. It is resolved against
+        the source's declared criteria, recorded on the session, and left
+        None for sources that declare none.
         """
         contents = source.produce()
+        resolved_criterion = _resolve_criterion(source, criterion)
         selector = self._selectors.get(selector_name)
         candidate_regions = selector.select(
             contents,
             context=SelectorContext(
                 engineer_identifier=engineer_identifier,
                 engagement_threshold=engagement_threshold,
+                criterion=resolved_criterion,
             ),
         )
         if not candidate_regions:
@@ -208,6 +217,7 @@ class SessionService:
                 source_range=source_range,
                 selector_name=selector.name,
                 selector_version=selector.version,
+                criterion=resolved_criterion,
                 reconciliation_layout=layout,
                 engagement_threshold=engagement_threshold,
                 current_phase=SessionPhase.HYPOTHESIS,
@@ -621,6 +631,7 @@ class SessionService:
                 layout=session.reconciliation_layout,
                 source_commit=session.source_commit,
                 source_range=session.source_range,
+                criterion=session.criterion,
             )
 
     def get_region(
@@ -851,6 +862,35 @@ class SessionService:
             missing_aspects=verdict.missing_aspects,
             attempt_number=attempt_number,
         )
+
+
+def _resolve_criterion(source: ContentSource, requested: str | None) -> str | None:
+    """Settle which load type this session orders by.
+
+    Sources that declare criteria (a manifest) answer `default_criterion`
+    and `criterion_ids`; sources that do not (a diff) answer neither, and
+    the session records None. Asked by capability rather than by type, so
+    a third source kind needs no change here.
+
+    Validating against the source rather than leaving it to the selector
+    is what makes an unknown criterion an error *at launch*, with the
+    declared ids listed, before any session row exists.
+    """
+    declared: tuple[str, ...] | None = getattr(source, "criterion_ids", None)
+    if declared is None:
+        if requested is not None:
+            raise ValueError(
+                f"this content source declares no criteria, so --criterion "
+                f"{requested!r} has nothing to select"
+            )
+        return None
+
+    if requested is None:
+        return getattr(source, "default_criterion", None)
+
+    if requested not in declared:
+        raise UnknownCriterion(requested, declared)
+    return requested
 
 
 def _to_region_view(region: Region) -> RegionView:

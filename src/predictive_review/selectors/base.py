@@ -39,6 +39,10 @@ from ..storage.models import EngagementThreshold
 class SelectorContext:
     engineer_identifier: str | None = None
     engagement_threshold: EngagementThreshold = EngagementThreshold.DEFAULT
+    # The load type this session is ordering by, resolved at launch from
+    # the user's choice or the manifest's default. None for sources that
+    # declare no criteria, which is every diff session.
+    criterion: str | None = None
 
 
 @runtime_checkable

@@ -67,3 +67,22 @@ def selector_guidance(threshold: EngagementThreshold) -> str:
 
 def judge_guidance(threshold: EngagementThreshold) -> str:
     return _JUDGE_GUIDANCE[threshold]
+
+
+# The same decision as _SELECTOR_GUIDANCE, in the form a deterministic
+# selector can act on. An LLM-backed selector is told "select 2-4 regions"
+# in prose; a selector that ranks by a declared score has no prompt to be
+# told anything in, so it reads the bound directly.
+#
+# These two encodings must not drift: if the prose above changes its
+# counts, change the tuple below in the same edit.
+_SELECTOR_REGION_BOUNDS: dict[EngagementThreshold, tuple[int, int]] = {
+    EngagementThreshold.LOAD_BEARING_ONLY: (1, 2),
+    EngagementThreshold.DEFAULT: (2, 4),
+    EngagementThreshold.THOROUGH: (3, 4),
+}
+
+
+def selector_region_bounds(threshold: EngagementThreshold) -> tuple[int, int]:
+    """(min, max) regions a non-LLM selector should return at this threshold."""
+    return _SELECTOR_REGION_BOUNDS[threshold]

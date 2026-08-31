@@ -18,8 +18,9 @@ from pathlib import Path
 
 import click
 
-from .content_sources import DiffSource
+from .content_sources import DiffSource, ManifestError, ManifestSource
 from .judge import JudgeOutcome
+from .selectors.manifest import UnknownCriterion
 from .logging_config import configure_logging
 from .sessions.service import RegionSnapshot, SessionService
 from .storage.models import (
@@ -102,6 +103,29 @@ def serve(host: str, port: int, reload: bool) -> None:
     help="Run `git diff <range>` and use that diff (e.g. main..HEAD).",
 )
 @click.option(
+    "--source",
+    "source_kind",
+    type=click.Choice(["diff", "manifest"]),
+    default="diff",
+    show_default=True,
+    help="Where review material comes from. 'manifest' reads a repo's .load-bearing/.",
+)
+@click.option(
+    "--repo",
+    "repo_path",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repo root holding .load-bearing/. Required with --source manifest.",
+)
+@click.option(
+    "--criterion",
+    default=None,
+    help=(
+        "Load type to order members by. Defaults to the manifest's "
+        "default_criterion. Only meaningful with --source manifest."
+    ),
+)
+@click.option(
     "--engineer",
     default="default",
     show_default=True,
@@ -134,6 +158,9 @@ def run(
     diff_source,
     commit_sha: str | None,
     git_range: str | None,
+    source_kind: str,
+    repo_path: str | None,
+    criterion: str | None,
     engineer: str,
     selector: str,
     layout: str,
@@ -141,17 +168,23 @@ def run(
 ) -> None:
     """Walk one Predictive Review session interactively, end-to-end.
 
-    Diff source is one of: --diff (file or stdin), --commit (git show), or
-    --range (git diff). With none of these, reads from stdin.
+    With --source diff (the default), the diff comes from --diff (file or
+    stdin), --commit (git show), or --range (git diff); with none of
+    these, reads from stdin.
+
+    With --source manifest, regions come from --repo's .load-bearing/
+    manifest instead, ordered by --criterion (default: the manifest's own
+    default_criterion). Members whose anchored slice has moved since the
+    manifest was written are reported and excluded.
 
     After reveal, each region prompts a three-way choice: engage (full
     reconciliation), acknowledge (close without engaging, requires a one-line
     note), or defer (revisit later). Deferred regions block session
     completion until resolved.
     """
-    diff_text = _resolve_diff_text(diff_source, commit_sha, git_range)
-    if not diff_text.strip():
-        raise click.UsageError("diff is empty")
+    content_source, source_commit, source_range = _build_source(
+        source_kind, diff_source, commit_sha, git_range, repo_path
+    )
 
     service = build_default_service()
     layout_enum = (
@@ -160,21 +193,28 @@ def run(
         else ReconciliationLayout.NO_HUNK
     )
     threshold_enum = EngagementThreshold(threshold)
-    source_commit = commit_sha or None
-    source_range = git_range or None
 
-    click.echo("Submitting diff and selecting regions...")
-    session_id = service.submit(
-        source=DiffSource(diff_text),
-        engineer_identifier=engineer,
-        selector_name=selector,
-        layout=layout_enum,
-        engagement_threshold=threshold_enum,
-        source_commit=source_commit,
-        source_range=source_range,
-    )
+    click.echo("Submitting and selecting regions...")
+    try:
+        session_id = service.submit(
+            source=content_source,
+            engineer_identifier=engineer,
+            selector_name=selector,
+            layout=layout_enum,
+            engagement_threshold=threshold_enum,
+            criterion=criterion,
+            source_commit=source_commit,
+            source_range=source_range,
+        )
+    except (UnknownCriterion, ManifestError) as e:
+        raise click.UsageError(str(e)) from None
+
+    _report_staleness(content_source)
     regions = service.list_regions(session_id)
     click.echo(f"Session {session_id}")
+    chosen = service.get_session(session_id)
+    if chosen is not None and chosen.criterion:
+        click.echo(f"Ordering by criterion: {chosen.criterion}")
     click.echo(f"Selected {len(regions)} regions:")
     for r in regions:
         click.echo(f"  {r.ordinal + 1}. {r.structural_label}")
@@ -197,6 +237,52 @@ def run(
 
 
 # --- diff sourcing -------------------------------------------------------
+
+
+def _build_source(
+    source_kind: str,
+    diff_source,
+    commit_sha: str | None,
+    git_range: str | None,
+    repo_path: str | None,
+):
+    """Construct the ContentSource, plus the git provenance to record.
+
+    Provenance is diff-only: a manifest is content-addressed and its
+    `source_commit` is display-only, so a manifest session records neither
+    a commit nor a range.
+    """
+    if source_kind == "manifest":
+        if repo_path is None:
+            raise click.UsageError("--source manifest requires --repo <path>")
+        if commit_sha or git_range:
+            raise click.UsageError(
+                "--commit / --range describe a diff and do not apply to "
+                "--source manifest"
+            )
+        try:
+            return ManifestSource(repo_path), None, None
+        except ManifestError as e:
+            raise click.UsageError(str(e)) from None
+
+    if repo_path is not None:
+        raise click.UsageError("--repo applies to --source manifest, not --source diff")
+    diff_text = _resolve_diff_text(diff_source, commit_sha, git_range)
+    if not diff_text.strip():
+        raise click.UsageError("diff is empty")
+    return DiffSource(diff_text), commit_sha or None, git_range or None
+
+
+def _report_staleness(source) -> None:
+    """Invariant 6: stale members are named, never silently dropped."""
+    stale = getattr(source, "stale_member_ids", ())
+    if not stale:
+        return
+    click.echo(
+        f"{len(stale)} member(s) stale since manifest generation, excluded:"
+    )
+    for member_id in stale:
+        click.echo(f"  - {member_id}")
 
 
 def _resolve_diff_text(

@@ -162,6 +162,10 @@ class Session(Base):
     source_range: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     selector_name: Mapped[str] = mapped_column(String(64))
     selector_version: Mapped[str] = mapped_column(String(32))
+    # The load type this session ordered its regions by, when the content
+    # source declared criteria to choose among. NULL for diff sessions,
+    # which have no criteria and no ordering to override.
+    criterion: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     reconciliation_layout: Mapped[ReconciliationLayout] = mapped_column(
         Enum(ReconciliationLayout)
     )

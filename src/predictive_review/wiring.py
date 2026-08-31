@@ -18,6 +18,7 @@ from .llm.anthropic_client import AnthropicClient
 from .llm.client import LLMClient
 from .reading import ReadingGenerator
 from .selectors.development import FirstNHunksSelector
+from .selectors.manifest import ManifestSelector
 from .selectors.llm_judgment import LLMJudgmentSelector
 from .selectors.registry import SelectorRegistry
 from .sessions.service import SessionService
@@ -34,6 +35,7 @@ def build_default_service(
 
     registry = SelectorRegistry()
     registry.register("first_n_hunks", FirstNHunksSelector)
+    registry.register("manifest", ManifestSelector)
     registry.register(
         "llm_judgment",
         lambda: LLMJudgmentSelector(llm=client, model=_require(s.selector_model, "SELECTOR_MODEL")),
