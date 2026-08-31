@@ -5,13 +5,19 @@ out of the diff. Per the PM doc, the selection contract is intentionally
 narrow — the selector is pluggable so future approaches (entropy ranking,
 blame-aware, IRT-driven) drop in as alternative implementations of the
 same Protocol without touching the rest of the application.
+
+The v1 prompt is diff-shaped: it numbers candidates as "Hunk N" and the
+model answers with `hunk_index`. That vocabulary is preserved verbatim
+here even though the input is now generic `RegionContent`, because
+changing prompt-visible text would change model behavior. Kind-dispatched
+prompting is a separate, deliberate step.
 """
 
 from __future__ import annotations
 
 from string import Template
 
-from ..domain.diff import Diff, Hunk
+from ..domain.content import RegionContent
 from ..domain.region import Region
 from ..llm.client import LLMClient, Message
 from ..llm.parsing import extract_json
@@ -42,11 +48,11 @@ class LLMJudgmentSelector:
 
     def select(
         self,
-        diff: Diff,
+        contents: list[RegionContent],
         *,
         context: SelectorContext | None = None,
     ) -> list[Region]:
-        if not diff.hunks:
+        if not contents:
             return []
 
         threshold = (
@@ -58,7 +64,7 @@ class LLMJudgmentSelector:
             engagement_threshold=selector_guidance(threshold)
         )
 
-        user_content = _format_hunks(diff.hunks)
+        user_content = _format_candidates(contents)
         completion = self._llm.complete(
             system=system,
             messages=[Message(role="user", content=user_content)],
@@ -73,15 +79,15 @@ class LLMJudgmentSelector:
         regions: list[Region] = []
         for raw in raw_selections:
             idx = int(raw["hunk_index"]) - 1  # prompt uses 1-based indexing
-            if not 0 <= idx < len(diff.hunks):
+            if not 0 <= idx < len(contents):
                 raise ValueError(
                     f"selector referenced out-of-range hunk_index: "
-                    f"{raw['hunk_index']} (have {len(diff.hunks)} hunks)"
+                    f"{raw['hunk_index']} (have {len(contents)} hunks)"
                 )
             regions.append(
                 Region(
                     structural_label=str(raw["structural_label"]).strip(),
-                    content=diff.hunks[idx].to_content(),
+                    content=contents[idx],
                     selector_rationale={
                         "rationale": str(raw.get("rationale", "")).strip(),
                         "prompt_version": self._prompt_version,
@@ -92,13 +98,15 @@ class LLMJudgmentSelector:
         return regions
 
 
-def _format_hunks(hunks: tuple[Hunk, ...]) -> str:
-    """Number hunks 1-based and present each with its file and body.
+def _format_candidates(contents: list[RegionContent]) -> str:
+    """Number candidates 1-based and present each with its file and body.
 
-    The selector references hunks by index in its JSON response; this
-    formatting is what the indices refer to.
+    The selector references candidates by index in its JSON response;
+    this formatting is what the indices refer to. The "Hunk" wording and
+    layout match the v1 prompt exactly — see the module docstring.
     """
     parts = []
-    for i, h in enumerate(hunks, start=1):
-        parts.append(f"### Hunk {i}: {h.file_path}\n```\n{h.text}\n```")
+    for i, content in enumerate(contents, start=1):
+        file_path = content.metadata.get("file_path", "")
+        parts.append(f"### Hunk {i}: {file_path}\n```\n{content.body}\n```")
     return "\n\n".join(parts)

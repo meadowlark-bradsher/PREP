@@ -21,7 +21,7 @@ from predictive_review.dialogue import (
     DialogueMessage,
     TurnRole,
 )
-from predictive_review.domain.diff import parse_diff
+from predictive_review.content_sources import DiffSource
 from predictive_review.judge import ClosureJudge, JudgeOutcome
 from predictive_review.reading import ReadingGenerator
 from predictive_review.selectors.development import FirstNHunksSelector
@@ -52,8 +52,8 @@ index 0000000..1111111 100644
 
 
 def _sample_region() -> "Region":  # type: ignore[name-defined]
-    diff = parse_diff(SAMPLE_DIFF)
-    return FirstNHunksSelector().select(diff)[0]
+    contents = DiffSource(SAMPLE_DIFF).produce()
+    return FirstNHunksSelector().select(contents)[0]
 
 
 def test_selector_calls_client_with_prompt_and_numbered_hunks() -> None:
@@ -75,9 +75,9 @@ def test_selector_calls_client_with_prompt_and_numbered_hunks() -> None:
         model="claude-haiku-x",
         prompt_template="SELECTOR PROMPT",
     )
-    diff = parse_diff(SAMPLE_DIFF)
+    contents = DiffSource(SAMPLE_DIFF).produce()
 
-    regions = selector.select(diff)
+    regions = selector.select(contents)
 
     assert len(llm.calls) == 1
     call = llm.calls[0]
@@ -89,7 +89,7 @@ def test_selector_calls_client_with_prompt_and_numbered_hunks() -> None:
 
     assert len(regions) == 1
     assert regions[0].structural_label == "the new() function"
-    assert regions[0].content == diff.hunks[0].to_content()
+    assert regions[0].content == contents[0]
     assert regions[0].selector_rationale["rationale"] == "introduces a new public API"
     assert regions[0].selector_rationale["model_id"] == "claude-test"
 
@@ -112,7 +112,7 @@ def test_selector_raises_on_out_of_range_hunk_index() -> None:
         llm=llm, model="m", prompt_template="P"
     )
     with pytest.raises(ValueError, match="out-of-range"):
-        selector.select(parse_diff(SAMPLE_DIFF))
+        selector.select(DiffSource(SAMPLE_DIFF).produce())
 
 
 def test_selector_raises_on_empty_selections() -> None:
@@ -121,7 +121,7 @@ def test_selector_raises_on_empty_selections() -> None:
         llm=llm, model="m", prompt_template="P"
     )
     with pytest.raises(ValueError, match="no selections"):
-        selector.select(parse_diff(SAMPLE_DIFF))
+        selector.select(DiffSource(SAMPLE_DIFF).produce())
 
 
 def test_selector_handles_json_in_markdown_fence() -> None:
@@ -143,7 +143,7 @@ def test_selector_handles_json_in_markdown_fence() -> None:
     selector = LLMJudgmentSelector(
         llm=llm, model="m", prompt_template="P"
     )
-    regions = selector.select(parse_diff(SAMPLE_DIFF))
+    regions = selector.select(DiffSource(SAMPLE_DIFF).produce())
     assert len(regions) == 1
 
 
@@ -284,10 +284,10 @@ def test_selector_substitutes_threshold_guidance_into_prompt() -> None:
         model="claude-haiku-x",
         prompt_template="header\n$engagement_threshold\nfooter",
     )
-    diff = parse_diff(SAMPLE_DIFF)
+    contents = DiffSource(SAMPLE_DIFF).produce()
 
     selector.select(
-        diff,
+        contents,
         context=SelectorContext(
             engagement_threshold=EngagementThreshold.LOAD_BEARING_ONLY
         ),

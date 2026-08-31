@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from predictive_review.content_sources import DiffSource
 from predictive_review.judge import JudgeOutcome
 from predictive_review.selectors.registry import default_registry
 from predictive_review.sessions.errors import (
@@ -107,7 +108,7 @@ def service(session_factory, reading_gen, judge, dialogue):
 
 def _submit(service: SessionService) -> str:
     return service.submit(
-        diff_text=SAMPLE_DIFF,
+        source=DiffSource(SAMPLE_DIFF),
         engineer_identifier="meadowlark",
         selector_name="first_n_hunks",
         layout=ReconciliationLayout.INLINE_HUNK,

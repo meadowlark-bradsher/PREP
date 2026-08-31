@@ -18,6 +18,7 @@ from pathlib import Path
 
 import click
 
+from .content_sources import DiffSource
 from .judge import JudgeOutcome
 from .logging_config import configure_logging
 from .sessions.service import RegionSnapshot, SessionService
@@ -164,7 +165,7 @@ def run(
 
     click.echo("Submitting diff and selecting regions...")
     session_id = service.submit(
-        diff_text=diff_text,
+        source=DiffSource(diff_text),
         engineer_identifier=engineer,
         selector_name=selector,
         layout=layout_enum,

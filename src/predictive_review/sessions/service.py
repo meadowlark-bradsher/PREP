@@ -42,9 +42,9 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 logger = logging.getLogger("predictive_review.sessions")
 
+from ..content_sources.base import ContentSource
 from ..dialogue import DialogueManager, DialogueMessage, TurnRole
 from ..domain.content import RegionContent
-from ..domain.diff import parse_diff
 from ..domain.region import Region as RegionView
 from ..judge import ClosureJudge, JudgeOutcome, JudgeVerdict
 from ..reading import ReadingGenerator
@@ -170,7 +170,7 @@ class SessionService:
     def submit(
         self,
         *,
-        diff_text: str,
+        source: ContentSource,
         engineer_identifier: str,
         selector_name: str,
         layout: ReconciliationLayout,
@@ -178,17 +178,19 @@ class SessionService:
         source_commit: str | None = None,
         source_range: str | None = None,
     ) -> str:
-        """Parse the diff, run the selector, persist session + regions.
+        """Produce candidate content, run the selector, persist session + regions.
 
         Returns the new session id; the session is left in HYPOTHESIS phase.
+        The source has already resolved its own material — this method
+        never parses, reads the filesystem, or shells out.
         source_commit / source_range carry the diff's git provenance when
         the diff came from `git show <sha>` or `git diff <range>`; both
         are None when the diff was pasted.
         """
-        diff = parse_diff(diff_text)
+        contents = source.produce()
         selector = self._selectors.get(selector_name)
         candidate_regions = selector.select(
-            diff,
+            contents,
             context=SelectorContext(
                 engineer_identifier=engineer_identifier,
                 engagement_threshold=engagement_threshold,
@@ -201,7 +203,7 @@ class SessionService:
             engineer = self._get_or_create_engineer(db, engineer_identifier)
             session = Session(
                 engineer_id=engineer.id,
-                diff_text=diff_text,
+                diff_text=source.raw_text,
                 source_commit=source_commit,
                 source_range=source_range,
                 selector_name=selector.name,
