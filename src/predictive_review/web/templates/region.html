@@ -24,19 +24,38 @@
     </button>
   </div>
 
-  <div class="two-pane">
+  <div class="two-pane" data-layout-key="region">
     <article class="reading-pane">
-      <h2>Hunk</h2>
-      <pre class="hunk"><code>{{ region.hunk_text }}</code></pre>
+      <header class="pane-header">
+        <span class="pane-title">Context</span>
+        <button type="button" class="pane-toggle" data-collapse="left"
+                title="Collapse the context pane">×</button>
+      </header>
+      <div class="pane-body">
+        <h2>Hunk</h2>
+        <pre class="hunk"><code>{{ region.hunk_text }}</code></pre>
 
-      <h2>Your locked hypothesis</h2>
-      <div class="locked-text prose">{{ hypothesis | markdown }}</div>
+        <h2>Your locked hypothesis</h2>
+        <div class="locked-text prose">{{ hypothesis | markdown }}</div>
 
-      <h2>Model's reading</h2>
-      <div class="reading prose">{{ reading | markdown }}</div>
+        <h2>Model's reading</h2>
+        <div class="reading prose">{{ reading | markdown }}</div>
+      </div>
+      <button type="button" class="pane-reopen" data-reopen
+              title="Reopen the context pane">▸ Context</button>
     </article>
 
+    <div class="gutter" data-gutter title="Drag to resize"></div>
+
     <article class="action-pane">
+      <header class="pane-header">
+        <span class="pane-title">Action</span>
+        <button type="button" class="pane-toggle" data-collapse="right"
+                title="Collapse the action pane">×</button>
+      </header>
+      <button type="button" class="pane-reopen" data-reopen
+              title="Reopen the action pane">◂ Action</button>
+      <div class="pane-body">
       {% if region.status.value == "awaiting_reveal_choice" %}
         <h2>Choose your engagement</h2>
         {% if region.is_deferred %}
@@ -120,7 +139,12 @@
       {% else %}
         <p>Region state: {{ region.status.value }}</p>
       {% endif %}
+      </div>
     </article>
   </div>
+
+  <p class="layout-reset">
+    <a href="#" data-reset-layout>Reset layout</a>
+  </p>
 </section>
 {% endblock %}

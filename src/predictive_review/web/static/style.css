@@ -287,28 +287,126 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .region-chip.is-active { background: var(--accent); color: white; border-color: var(--accent); }
 .region-chip.status-closed { background: var(--closed-bg); }
 
-/* two-pane region surface */
+/* two-pane region surface with draggable gutter + collapsible panes.
+   Grid has three tracks: reading | gutter | action. The fr values on
+   the outer tracks are driven by --left-fr / --right-fr, which
+   layout.js writes WITH the "fr" unit attached. The unit must already
+   be present on the CSS variable — `calc(var(--x) * 1fr)` doesn't work
+   in Chrome because <flex> inside calc() can't be resolved from a
+   custom property at parse time. gap is 0 because the gutter is a
+   real sibling element, not grid gap. */
 .two-pane {
-  display: grid; gap: 1.5rem;
-  /* minmax(0, 1fr) instead of 1fr — without it, grid columns refuse to
-     shrink below their content's min-content size, so a wide hunk pre
-     bullies the chat pane down to one-word-per-line. min-content here
-     is the longest unbreakable diff line. */
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr);
+  display: grid; gap: 0;
+  grid-template-columns:
+    minmax(0, var(--left-fr, 1fr))
+    8px
+    minmax(360px, var(--right-fr, 1fr));
 }
-@media (max-width: 800px) { .two-pane { grid-template-columns: 1fr; } }
+@media (max-width: 800px) {
+  .two-pane { grid-template-columns: 1fr; }
+  .two-pane .gutter { display: none; }
+  .two-pane .pane-toggle, .two-pane .pane-reopen { display: none; }
+}
 
 /* When the context is popped into its own window (dual-monitor mode), the
    left reading-pane lives over there — collapse it here so the action/chat
    pane takes the whole window. dual_monitor.js toggles this class. */
 .two-pane.context-popped { grid-template-columns: 1fr; }
 .two-pane.context-popped .reading-pane { display: none; }
+/* The drag gutter is a real grid child. In a single-column grid it would
+   flow to its own implicit row and sit as an 8px bar above the action
+   pane, so popping the context out has to take it with the pane it
+   resizes. */
+.two-pane.context-popped .gutter { display: none; }
 
 .reading-pane, .action-pane {
   background: white;
-  border: 1px solid var(--rule); border-radius: 4px; padding: 1rem 1.25rem;
-  min-width: 0;  /* belt-and-suspenders for the minmax above */
+  border: 1px solid var(--rule); border-radius: 4px;
+  min-width: 0;
+  display: flex; flex-direction: column;
 }
+.reading-pane { margin-right: 0; }
+.action-pane  { margin-left: 0; }
+
+.pane-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.4rem 0.6rem 0.4rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: #fafafa;
+}
+.pane-title {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); font-weight: 600;
+}
+.pane-toggle {
+  background: transparent; border: none; cursor: pointer;
+  padding: 0.1rem 0.5rem; margin: 0; font-size: 1.05rem; line-height: 1;
+  color: var(--muted); border-radius: 4px;
+}
+.pane-toggle:hover { background: var(--rule); color: var(--fg); }
+
+.pane-body { padding: 1rem 1.25rem; flex: 1; min-height: 0; }
+
+.pane-reopen {
+  display: none;
+  background: transparent; border: none; cursor: pointer;
+  padding: 0.5rem 0.25rem; margin: 0;
+  font-size: 0.85rem; color: var(--muted);
+  writing-mode: vertical-rl; text-orientation: mixed;
+  height: 100%;
+}
+.pane-reopen:hover { color: var(--accent-strong); background: var(--rule); }
+
+/* The draggable gutter between the two panes. */
+.gutter {
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+}
+.gutter::after {
+  /* The visible vertical bar — slim, low-contrast until hover. */
+  content: '';
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 2px; transform: translateX(-1px);
+  background: var(--rule); transition: background-color 0.12s;
+}
+.gutter:hover::after, .gutter.is-dragging::after { background: var(--accent); }
+.two-pane.is-dragging { user-select: none; }
+.two-pane.is-dragging * { cursor: col-resize !important; }
+
+/* Collapsed states. JS toggles these classes on the container; CSS
+   responds by shrinking the affected track and hiding pane innards
+   except the rotated-text reopen button. */
+/* Collapse does not apply while the context is popped out. Both features
+   set grid-template-columns on .two-pane at identical specificity (two
+   classes each), so without the :not() the later rule — collapse — would
+   win and leave a 36px dead track for a pane context-popped has already
+   removed. Expressed as "collapse is off while popped" rather than by
+   undoing each effect downstream, so a new collapse rule inherits the
+   exemption instead of needing its own override. */
+.two-pane.left-collapsed:not(.context-popped) {
+  grid-template-columns: 36px 0 minmax(360px, 1fr);
+}
+.two-pane.right-collapsed:not(.context-popped) {
+  grid-template-columns: minmax(0, 1fr) 0 36px;
+}
+.two-pane.left-collapsed:not(.context-popped)  .gutter,
+.two-pane.right-collapsed:not(.context-popped) .gutter { pointer-events: none; }
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane .pane-header,
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane .pane-body,
+.two-pane.right-collapsed:not(.context-popped) .action-pane  .pane-header,
+.two-pane.right-collapsed:not(.context-popped) .action-pane  .pane-body { display: none; }
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane .pane-reopen,
+.two-pane.right-collapsed:not(.context-popped) .action-pane  .pane-reopen { display: block; }
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane,
+.two-pane.right-collapsed:not(.context-popped) .action-pane { padding: 0; }
+
+.layout-reset {
+  text-align: right; font-size: 0.8rem; color: var(--muted);
+  margin: 0.75rem 0 0;
+}
+.layout-reset a { color: var(--muted); }
 
 .judge-fail {
   background: var(--warn-bg); color: var(--warn-fg);
