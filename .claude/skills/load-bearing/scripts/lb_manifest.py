@@ -53,7 +53,16 @@ MANIFEST_DIRNAME = ".load-bearing"
 MANIFEST_FILENAME = "manifest.json"
 
 STATE_FIELD_NAMES = frozenset(
-    {"reviewed", "understood", "verified", "known", "mastered", "status"}
+    {
+        "reviewed",
+        "understood",
+        "verified",
+        "known",
+        "mastered",
+        "status",
+        "confidence",
+        "mastery",
+    }
 )
 
 _TOP_FIELDS = frozenset(

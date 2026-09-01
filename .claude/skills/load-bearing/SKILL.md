@@ -130,8 +130,9 @@ PREP validates strictly and reports the JSON path of the first offending field.
 No lenient mode, no partial acceptance.
 
 - **State-shaped fields.** `reviewed`, `understood`, `verified`, `known`,
-  `mastered`, `status` — at any depth, any capitalisation, **including inside
-  `metadata`**. A manifest carries content; whether anyone understands it is not
+  `mastered`, `status`, `confidence`, `mastery` — at any depth, any
+  capitalisation, **including inside `metadata`**, and including as a criterion
+  or aspect id. A manifest carries content; whether anyone understands it is not
   the manifest's business. This also means **you cannot name a criterion
   `status`** or any of the others.
 - **Unknown fields**, anywhere. `metadata` is the only open bag.
@@ -217,5 +218,8 @@ for, and reader-facing state is what invariant 1 keeps out of this file.
 
 ## Reference
 
-`references/format.md` — the full field-by-field schema, the freshness rule
-stated precisely, and a worked example.
+`.load-bearing/CONTRACT.md` — the contract itself. Normative; when this skill
+and the contract disagree, the contract wins and this skill has a bug.
+
+`references/format.md` — the field-by-field schema, the freshness rule stated
+precisely, and a worked example.

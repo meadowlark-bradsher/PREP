@@ -57,7 +57,16 @@ CONTENT_KIND = "member"
 # These name a *judgement about* a member rather than the member itself,
 # and the transport is not allowed to carry judgements.
 STATE_FIELD_NAMES = frozenset(
-    {"reviewed", "understood", "verified", "known", "mastered", "status"}
+    {
+        "reviewed",
+        "understood",
+        "verified",
+        "known",
+        "mastered",
+        "status",
+        "confidence",
+        "mastery",
+    }
 )
 
 # P3. `metadata` is the only opaque bag; every other object is closed.

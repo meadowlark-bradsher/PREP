@@ -1,5 +1,5 @@
 {
-  "contract": "load-bearing/0.1",
+  "contract": "load-bearing/0.2",
   "source_tree": "05788b5088f697c8b677cd240903964bf9efea32",
   "source_commit": "2b8100051af62f96ee7a2f2892eaebd204547ce5",
   "generated_by": {
@@ -78,9 +78,9 @@
       "anchors": [
         {
           "path": "src/predictive_review/content_sources/manifest.py",
-          "start": 110,
-          "end": 145,
-          "blob": "1b3cf0b9fe397f56b656f903ab812a1b7d6ca250",
+          "start": 119,
+          "end": 154,
+          "blob": "e48f64f293bfde539c82e8e51b7de69b120cada2",
           "range_hash": "f2b62bc2999989943b62068f0473b5967d459b476dd7073b96b645a77587a8e5"
         }
       ],

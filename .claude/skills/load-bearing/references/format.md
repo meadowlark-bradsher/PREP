@@ -1,7 +1,7 @@
 # `.load-bearing/` format reference
 
-Contract `load-bearing/0.1`. PREP rejects unknown **major** versions and
-tolerates unknown minors.
+Contract `load-bearing/0.2` — the full text is `.load-bearing/CONTRACT.md`.
+Implementations reject unknown **major** versions and tolerate unknown minors.
 
 ## Layout
 
@@ -97,8 +97,9 @@ for that session — the structured path needs at least one aspect in scope.
 Validation fails with the JSON path of the offending field. There is no lenient
 mode.
 
-- Any of `reviewed`, `understood`, `verified`, `known`, `mastered`, `status` —
-  at any depth, case-insensitive, **including inside `metadata`**. Opaque means
+- Any of `reviewed`, `understood`, `verified`, `known`, `mastered`, `status`,
+  `confidence`, `mastery` — at any depth, case-insensitive, **including inside
+  `metadata`**, and including as a criterion or aspect id. Opaque means
   the reading and the judge never see it; it does not mean unexamined at
   ingestion, and `metadata` is the only place a state field can otherwise land.
 - Unknown fields in any object except `metadata`.
