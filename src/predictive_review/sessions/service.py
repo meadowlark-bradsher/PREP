@@ -42,13 +42,15 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 logger = logging.getLogger("predictive_review.sessions")
 
+from ..content_sources.base import ContentSource
 from ..dialogue import DialogueManager, DialogueMessage, TurnRole
+from ..domain.aspect import Aspect
 from ..domain.content import RegionContent
-from ..domain.diff import parse_diff
 from ..domain.region import Region as RegionView
 from ..judge import ClosureJudge, JudgeOutcome, JudgeVerdict
 from ..reading import ReadingGenerator
 from ..selectors.base import SelectorContext
+from ..selectors.manifest import UnknownCriterion
 from ..selectors.registry import SelectorRegistry
 from ..storage.models import (
     ClosureAttempt,
@@ -83,7 +85,7 @@ from .errors import (
 @dataclass(frozen=True)
 class ClosureAttemptResult:
     verdict: JudgeOutcome
-    missing_aspects: str | None
+    missing_aspects: list[str] | str | None
     attempt_number: int
 
 
@@ -105,6 +107,7 @@ class SessionSnapshot:
     layout: "ReconciliationLayout"
     source_commit: str | None
     source_range: str | None
+    criterion: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,7 +122,7 @@ class ClosureAttemptSnapshot:
     attempt_number: int
     teach_back_statement: str
     verdict: "ClosureVerdict"
-    missing_aspects: str | None
+    missing_aspects: list[str] | str | None
 
 
 @dataclass(frozen=True)
@@ -170,28 +173,37 @@ class SessionService:
     def submit(
         self,
         *,
-        diff_text: str,
+        source: ContentSource,
         engineer_identifier: str,
         selector_name: str,
         layout: ReconciliationLayout,
         engagement_threshold: EngagementThreshold = EngagementThreshold.DEFAULT,
+        criterion: str | None = None,
         source_commit: str | None = None,
         source_range: str | None = None,
     ) -> str:
-        """Parse the diff, run the selector, persist session + regions.
+        """Produce candidate content, run the selector, persist session + regions.
 
         Returns the new session id; the session is left in HYPOTHESIS phase.
+        The source has already resolved its own material — this method
+        never parses, reads the filesystem, or shells out.
         source_commit / source_range carry the diff's git provenance when
         the diff came from `git show <sha>` or `git diff <range>`; both
         are None when the diff was pasted.
+
+        criterion names the load type to order by. It is resolved against
+        the source's declared criteria, recorded on the session, and left
+        None for sources that declare none.
         """
-        diff = parse_diff(diff_text)
+        contents = source.produce()
+        resolved_criterion = _resolve_criterion(source, criterion)
         selector = self._selectors.get(selector_name)
         candidate_regions = selector.select(
-            diff,
+            contents,
             context=SelectorContext(
                 engineer_identifier=engineer_identifier,
                 engagement_threshold=engagement_threshold,
+                criterion=resolved_criterion,
             ),
         )
         if not candidate_regions:
@@ -201,11 +213,12 @@ class SessionService:
             engineer = self._get_or_create_engineer(db, engineer_identifier)
             session = Session(
                 engineer_id=engineer.id,
-                diff_text=diff_text,
+                diff_text=source.raw_text,
                 source_commit=source_commit,
                 source_range=source_range,
                 selector_name=selector.name,
                 selector_version=selector.version,
+                criterion=resolved_criterion,
                 reconciliation_layout=layout,
                 engagement_threshold=engagement_threshold,
                 current_phase=SessionPhase.HYPOTHESIS,
@@ -346,6 +359,7 @@ class SessionService:
                 teach_back_statement=body,
                 attempt_number=1,
                 engagement_threshold=session.engagement_threshold,
+                criterion=session.criterion,
             )
 
     def dialogue_turn(
@@ -427,6 +441,7 @@ class SessionService:
                 teach_back_statement=body,
                 attempt_number=next_number,
                 engagement_threshold=session.engagement_threshold,
+                criterion=session.criterion,
             )
 
     def close_with_disagreement(
@@ -619,6 +634,7 @@ class SessionService:
                 layout=session.reconciliation_layout,
                 source_commit=session.source_commit,
                 source_range=session.source_range,
+                criterion=session.criterion,
             )
 
     def get_region(
@@ -819,11 +835,14 @@ class SessionService:
         teach_back_statement: str,
         attempt_number: int,
         engagement_threshold: EngagementThreshold,
+        criterion: str | None = None,
     ) -> ClosureAttemptResult:
+        aspects = _aspects_in_scope(region, criterion)
         verdict: JudgeVerdict = self._judge.judge(
             reading_body=reading_body,
             teach_back_statement=teach_back_statement,
             engagement_threshold=engagement_threshold,
+            aspects=aspects,
         )
         db.add(
             ClosureAttempt(
@@ -832,6 +851,11 @@ class SessionService:
                 teach_back_statement=teach_back_statement,
                 verdict=ClosureVerdict(verdict.outcome.value),
                 missing_aspects=verdict.missing_aspects,
+                criterion=criterion,
+                # Non-NULL exactly when the judge ran structured, and
+                # holding what it was permitted to name. Invariant 7's
+                # provenance needs both halves to be reconstructable.
+                aspect_scope=[a.id for a in aspects] if aspects else None,
                 judge_model_id=verdict.model_id,
                 judge_prompt_version=verdict.prompt_version,
             )
@@ -849,6 +873,70 @@ class SessionService:
             missing_aspects=verdict.missing_aspects,
             attempt_number=attempt_number,
         )
+
+
+def _aspects_in_scope(region: Region, criterion: str | None) -> list[Aspect] | None:
+    """Narrow a region's declared aspects to the session's criterion.
+
+    Contract invariant 7: the judge sees only aspects that serve the
+    active criterion (or serve every criterion), so a PASS means
+    "covered at this scope" rather than "covered entirely".
+
+    Returns None — prose mode — in two cases that look different but are
+    the same thing: a region that declares no aspects at all (every diff
+    hunk), and a region whose aspects all belong to other criteria. In
+    both, there is no declared claim to score against at this scope, and
+    a structured FAIL would have to name an aspect that was never in
+    play.
+    """
+    content = RegionContent.from_dict(region.content)
+    declared = content.metadata.get("aspects")
+    if not declared:
+        return None
+
+    composition = content.metadata.get("criteria_composition")
+    scoped = [
+        aspect
+        for aspect in (
+            Aspect(
+                id=str(raw["id"]),
+                claim=str(raw["claim"]),
+                criteria=tuple(raw.get("criteria") or ()),
+            )
+            for raw in declared
+        )
+        if aspect.applies_under(criterion, composition)
+    ]
+    return scoped or None
+
+
+def _resolve_criterion(source: ContentSource, requested: str | None) -> str | None:
+    """Settle which load type this session orders by.
+
+    Sources that declare criteria (a manifest) answer `default_criterion`
+    and `criterion_ids`; sources that do not (a diff) answer neither, and
+    the session records None. Asked by capability rather than by type, so
+    a third source kind needs no change here.
+
+    Validating against the source rather than leaving it to the selector
+    is what makes an unknown criterion an error *at launch*, with the
+    declared ids listed, before any session row exists.
+    """
+    declared: tuple[str, ...] | None = getattr(source, "criterion_ids", None)
+    if declared is None:
+        if requested is not None:
+            raise ValueError(
+                f"this content source declares no criteria, so --criterion "
+                f"{requested!r} has nothing to select"
+            )
+        return None
+
+    if requested is None:
+        return getattr(source, "default_criterion", None)
+
+    if requested not in declared:
+        raise UnknownCriterion(requested, declared)
+    return requested
 
 
 def _to_region_view(region: Region) -> RegionView:

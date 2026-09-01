@@ -222,3 +222,14 @@ __marimo__/
 *.db-journal
 *.db-shm
 *.db-wal
+
+# macOS
+.DS_Store
+
+# JetBrains IDEs (see the PyCharm section above; ignoring the whole folder here)
+.idea/
+
+# Claude Code — local-only settings and scratch worktrees.
+# Shared project config (.claude/settings.json, skills, agents) stays tracked.
+.claude/settings.local.json
+.claude/worktrees/

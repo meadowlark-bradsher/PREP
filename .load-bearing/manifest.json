@@ -1,0 +1,167 @@
+{
+  "contract": "load-bearing/0.1",
+  "source_tree": "05788b5088f697c8b677cd240903964bf9efea32",
+  "source_commit": "2b8100051af62f96ee7a2f2892eaebd204547ce5",
+  "generated_by": {
+    "agent": "claude-code",
+    "model": "claude-opus-5",
+    "at": "2026-08-31T11:20:00Z"
+  },
+  "criteria": [
+    {
+      "id": "independence",
+      "description": "How much of the attribution guarantee rests on this being right. PREP's claim is that a passing teach-back was not accommodated by a component that saw the engineer's prior; code that widens what a component can see erodes that claim silently."
+    },
+    {
+      "id": "contract-fidelity",
+      "description": "How badly a divergence here breaks a producer PREP does not control. The .load-bearing/ format is consumed from repos PREP cannot see; a mismatch surfaces as unexplained staleness rather than as an error."
+    },
+    {
+      "id": "trust",
+      "description": "What PREP is, per its maintainers: a mechanism whose verdicts mean what they claim.",
+      "composed_of": [
+        "independence",
+        "contract-fidelity"
+      ],
+      "weights": {
+        "independence": 0.6,
+        "contract-fidelity": 0.4
+      }
+    }
+  ],
+  "default_criterion": "trust",
+  "members": [
+    {
+      "id": "judge/structured-verdict-parse",
+      "body_ref": "members/judge-structured-verdict.md",
+      "anchors": [
+        {
+          "path": "src/predictive_review/judge.py",
+          "start": 208,
+          "end": 243,
+          "blob": "d400ec667223629a301c71f1c293e5d41925b21b",
+          "range_hash": "8413aa8767462993b697da4a8311c55a40573345fe87221bcd7f7852391a34cf"
+        }
+      ],
+      "scores": {
+        "independence": 0.6,
+        "contract-fidelity": 0.9,
+        "trust": 0.72
+      },
+      "rationale": "The newest enforcement point and the only one with no prior art in the codebase; also the one a well-meaning change would most plausibly soften into a warning.",
+      "aspects": [
+        {
+          "id": "invented-id-rejected",
+          "criteria": [
+            "contract-fidelity"
+          ],
+          "claim": "an aspect id outside the supplied set is a parse failure, not a filtered-out value"
+        },
+        {
+          "id": "no-partial-salvage",
+          "criteria": [
+            "independence"
+          ],
+          "claim": "nothing is salvaged from a malformed verdict; recognisable ids are not kept when others are invalid"
+        },
+        {
+          "id": "pass-clears-the-field",
+          "criteria": [],
+          "claim": "on PASS the result is None regardless of what the judge returned"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "manifest/range-hash",
+      "body_ref": "members/manifest-range-hash.md",
+      "anchors": [
+        {
+          "path": "src/predictive_review/content_sources/manifest.py",
+          "start": 110,
+          "end": 145,
+          "blob": "1b3cf0b9fe397f56b656f903ab812a1b7d6ca250",
+          "range_hash": "f2b62bc2999989943b62068f0473b5967d459b476dd7073b96b645a77587a8e5"
+        }
+      ],
+      "scores": {
+        "independence": 0.2,
+        "contract-fidelity": 1.0,
+        "trust": 0.52
+      },
+      "rationale": "Duplicated by necessity in the producer skill; the two copies are pinned together by test_producer_skill.py and will drift the moment someone edits one.",
+      "aspects": [
+        {
+          "id": "lf-only-normalisation",
+          "criteria": [
+            "contract-fidelity"
+          ],
+          "claim": "CRLF is normalised to LF and nothing else is: no whitespace stripping, no BOM handling"
+        },
+        {
+          "id": "terminator-convention",
+          "criteria": [
+            "contract-fidelity"
+          ],
+          "claim": "a trailing newline terminates the last line rather than beginning an empty one, so a range ending at the last line hashes the same either way"
+        },
+        {
+          "id": "range-not-file",
+          "criteria": [],
+          "claim": "only the anchored lines are hashed, so an edit elsewhere in the file leaves the member fresh"
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "id": "judge/aspect-scope",
+      "body_ref": "members/judge-aspect-scope.md",
+      "anchors": [
+        {
+          "path": "src/predictive_review/sessions/service.py",
+          "start": 878,
+          "end": 910,
+          "blob": "b67ce9e52ae7ecb3ef3125c9f552f7cfec15c8b6",
+          "range_hash": "dbaed0e10452cf6e0e9ad49fe2bf795cfda979190bc537d9f3efc6c4a4ba2e0b"
+        }
+      ],
+      "scores": {
+        "independence": 0.95,
+        "contract-fidelity": 0.5,
+        "trust": 0.77
+      },
+      "rationale": "The empty-scope fallback is a judgement call neither the contract nor the build order covered; it is the likeliest thing here to be changed by someone who has not read why.",
+      "aspects": [
+        {
+          "id": "universal-aspects-always-apply",
+          "criteria": [
+            "independence"
+          ],
+          "claim": "an aspect with an empty criteria list applies under every criterion"
+        },
+        {
+          "id": "composite-covers-components",
+          "criteria": [
+            "independence"
+          ],
+          "claim": "an aspect scoped to a component surfaces under a composite that contains it, transitively, so a composite never covers less than its parts"
+        },
+        {
+          "id": "empty-scope-means-prose",
+          "criteria": [
+            "independence"
+          ],
+          "claim": "a region whose aspects all serve other criteria falls back to prose mode, because a structured failure must name an aspect from the set it was given"
+        },
+        {
+          "id": "scope-fixed-at-persist",
+          "criteria": [
+            "contract-fidelity"
+          ],
+          "claim": "aspects are rebuilt from persisted content, so a session's scope does not change if the manifest does"
+        }
+      ],
+      "metadata": {}
+    }
+  ]
+}

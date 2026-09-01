@@ -10,12 +10,17 @@ production paths fail loudly until their prompts are written.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
+from predictive_review.content_sources import ContentSource, DiffSource
+from predictive_review.domain.content import RegionContent
 from predictive_review.domain.diff import parse_diff
 from predictive_review.selectors.base import RegionSelector
 from predictive_review.selectors.development import FirstNHunksSelector
 from predictive_review.selectors.registry import default_registry
+from predictive_review.sessions.service import SessionService
 
 
 SAMPLE_DIFF = """\
@@ -63,6 +68,61 @@ def test_hunk_ref_is_stable_identifier() -> None:
     assert "@" in ref
 
 
+# --- content source contract ------------------------------------------------
+
+
+def test_diff_source_satisfies_protocol() -> None:
+    assert isinstance(DiffSource(SAMPLE_DIFF), ContentSource)
+
+
+def test_diff_source_produces_one_code_hunk_per_hunk_in_diff_order() -> None:
+    contents = DiffSource(SAMPLE_DIFF).produce()
+    hunks = parse_diff(SAMPLE_DIFF).hunks
+
+    assert len(contents) == len(hunks)
+    assert all(isinstance(c, RegionContent) for c in contents)
+    assert {c.kind for c in contents} == {"code_hunk"}
+    assert [c.body for c in contents] == [h.text for h in hunks]
+
+
+def test_diff_source_keeps_geometry_in_metadata_not_in_body() -> None:
+    """The core reads `body`; everything diff-shaped rides in metadata.
+
+    This is the property that lets a non-diff source reuse the pipeline.
+    """
+    content = DiffSource(SAMPLE_DIFF).produce()[0]
+    assert content.metadata["file_path"] == "foo.py"
+    assert "@" in content.metadata["ref"]
+    assert "new_start" in content.metadata
+
+
+def test_diff_source_preserves_raw_text_for_provenance() -> None:
+    assert DiffSource(SAMPLE_DIFF).raw_text == SAMPLE_DIFF
+
+
+def test_diff_source_on_empty_diff_produces_nothing() -> None:
+    assert DiffSource("").produce() == []
+
+
+def test_submit_takes_a_content_source_not_diff_text() -> None:
+    """Pin the port at the orchestration seam.
+
+    `submit` must not reacquire a diff-shaped parameter: the whole point
+    of the port is that the service never learns where content came from.
+    """
+    params = inspect.signature(SessionService.submit).parameters
+    assert "source" in params
+    assert "diff_text" not in params
+    assert params["source"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_selector_contract_consumes_content_not_a_diff() -> None:
+    """A selector ranks candidates; it never parses the source material."""
+    params = inspect.signature(FirstNHunksSelector.select).parameters
+    assert "contents" in params
+    assert "diff" not in params
+
+
 # --- selector contract ------------------------------------------------------
 
 
@@ -75,8 +135,7 @@ def test_first_n_hunks_selector_satisfies_protocol() -> None:
 
 def test_first_n_hunks_selector_returns_regions() -> None:
     selector = FirstNHunksSelector()
-    diff = parse_diff(SAMPLE_DIFF)
-    regions = selector.select(diff)
+    regions = selector.select(DiffSource(SAMPLE_DIFF).produce())
     assert 2 <= len(regions) <= 4
     for r in regions:
         assert r.structural_label
@@ -86,8 +145,8 @@ def test_first_n_hunks_selector_returns_regions() -> None:
 
 def test_first_n_hunks_selector_caps_at_max() -> None:
     selector = FirstNHunksSelector(min_regions=2, max_regions=2)
-    diff = parse_diff(SAMPLE_DIFF)
-    assert len(selector.select(diff)) == 2
+    contents = DiffSource(SAMPLE_DIFF).produce()
+    assert len(selector.select(contents)) == 2
 
 
 # --- registry ---------------------------------------------------------------

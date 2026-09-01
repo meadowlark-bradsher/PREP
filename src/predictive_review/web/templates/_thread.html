@@ -6,7 +6,7 @@
   {% if latest_fail %}
     <div class="judge-fail">
       <strong>Judge denied closure.</strong>
-      <div class="prose">{{ ("Not yet covered: " ~ latest_fail.missing_aspects) | markdown }}</div>
+      <div class="prose">{{ ("Not yet covered: " ~ (latest_fail.missing_aspects | missing_aspects)) | markdown }}</div>
     </div>
   {% endif %}
 

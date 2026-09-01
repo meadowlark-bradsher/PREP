@@ -44,10 +44,15 @@ class FakeClosureJudge:
     teach_back_statement). Default policy: PASS if teach-back contains
     'understand', otherwise FAIL — gives tests an easy lever to drive
     either branch by choosing teach-back wording.
+
+    `aspects_seen` records what the orchestrator narrowed the aspect list
+    to on each call, which is how tests assert criterion scoping without
+    reaching into the service.
     """
 
     decide: Callable[[str, str], tuple[JudgeOutcome, str | None]] | None = None
     calls: list[tuple[str, str]] = field(default_factory=list)
+    aspects_seen: list[list[str] | None] = field(default_factory=list)
     name: str = "fake_judge"
     version: str = "fake"
 
@@ -57,15 +62,21 @@ class FakeClosureJudge:
         reading_body: str,
         teach_back_statement: str,
         engagement_threshold=None,  # accepted and recorded; doesn't drive policy
+        aspects=None,
     ) -> JudgeVerdict:
         self.calls.append((reading_body, teach_back_statement, engagement_threshold))
+        self.aspects_seen.append([a.id for a in aspects] if aspects else None)
         decider = self.decide or _default_judge_policy
         outcome, missing = decider(reading_body, teach_back_statement)
+        # Structured mode: a fake that returned prose here would not be
+        # exercising the shape the real judge is contracted to produce.
+        if aspects and outcome is JudgeOutcome.FAIL and not isinstance(missing, list):
+            missing = [aspects[0].id]
         return JudgeVerdict(
             outcome=outcome,
             missing_aspects=missing,
             model_id="fake",
-            prompt_version="fake",
+            prompt_version="member_fake" if aspects else "fake",
         )
 
 

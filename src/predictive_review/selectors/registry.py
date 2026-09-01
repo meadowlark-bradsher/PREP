@@ -40,8 +40,12 @@ default_registry = SelectorRegistry()
 
 def _register_defaults() -> None:
     from .development import FirstNHunksSelector
+    from .manifest import ManifestSelector
 
     default_registry.register("first_n_hunks", FirstNHunksSelector)
+    # No-arg: the session's criterion reaches it on the SelectorContext,
+    # so the registry does not need to know which one was chosen.
+    default_registry.register("manifest", ManifestSelector)
     # LLMJudgmentSelector is not registered here because it requires an
     # LLMClient; production wiring registers it with the configured client.
 
