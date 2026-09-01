@@ -19,8 +19,21 @@ disagreeing about newlines. `range_hash` below is that rule, stated once:
 Usage
   lb_manifest.py slice   src/auth.py:14-32      show the anchored lines
   lb_manifest.py anchor  src/auth.py:14-32      emit an anchor object
-  lb_manifest.py check   [--repo DIR]           validate + report staleness
-  lb_manifest.py restamp MEMBER_ID [--repo DIR] re-hash one member's anchors
+  lb_manifest.py check    [--repo DIR]          validate + report staleness
+  lb_manifest.py relocate [--repo DIR]          repair pure moves, in bulk
+  lb_manifest.py attest   MEMBER_ID             re-stamp a real content change
+
+A stale member has two possible causes and they are not the same failure.
+The bytes MOVED, because something above them grew — nothing said about
+that region stopped being true, and repairing it needs no judgement.
+Or the bytes CHANGED, and the body may have gone stale with them.
+
+Collapsing the two leaves one remedy, a rehash, which yields a manifest
+fresh by hash and wrong by meaning — worse than an openly stale one,
+because a stale member at least announces itself. So `relocate` handles
+the first mechanically (an equal-length window elsewhere hashing to the
+recorded value IS proof nothing changed) and `attest` handles the second
+one member at a time, and refuses when the body has not been edited.
 """
 
 from __future__ import annotations
@@ -439,7 +452,124 @@ def cmd_check(args) -> int:
     return 0
 
 
-def cmd_restamp(args) -> int:
+def _find_moved_window(path: Path, recorded_hash: str, length: int):
+    """Locate the anchored bytes elsewhere in the file, if they merely moved.
+
+    A window of the same length hashing to the recorded value *is* proof
+    that nothing about those lines changed — only their line numbers did.
+    That is why a relocation needs no human judgement and a content change
+    does. Returns the new (start, end), or None if the bytes are gone.
+    """
+    lines = read_lines(path)
+    for start in range(1, len(lines) - length + 2):
+        end = start + length - 1
+        if range_hash(path, start, end) == recorded_hash:
+            return start, end
+    return None
+
+
+def _body_edited(repo_root: Path, manifest_dir: Path, member: dict) -> bool:
+    """Has this member's body changed against HEAD?
+
+    Checked against committed content rather than against mtime, so an
+    editor that touched and reverted a file does not read as an edit.
+    Works for both body shapes: a `body_ref` file is diffed directly, and
+    an inline `body` is pulled out of HEAD's manifest.
+    """
+    def _head(rel: str) -> str | None:
+        try:
+            out = subprocess.run(
+                ["git", "show", f"HEAD:{rel}"],
+                cwd=repo_root, capture_output=True, text=True, check=True,
+            )
+            return out.stdout
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    if "body_ref" in member:
+        body_path = (manifest_dir / member["body_ref"]).resolve()
+        rel = str(body_path.relative_to(repo_root.resolve()))
+        committed = _head(rel)
+        if committed is None:
+            return True  # new file, never committed: an edit by definition
+        return committed != body_path.read_text()
+
+    committed_manifest = _head(f"{MANIFEST_DIRNAME}/{MANIFEST_FILENAME}")
+    if committed_manifest is None:
+        return True
+    try:
+        old = json.loads(committed_manifest)
+    except json.JSONDecodeError:
+        return True
+    previous = next(
+        (m for m in old.get("members", []) if m.get("id") == member["id"]), None
+    )
+    if previous is None:
+        return True
+    return previous.get("body") != member.get("body")
+
+
+def cmd_relocate(args) -> int:
+    """Repair members whose anchored bytes moved but did not change."""
+    repo_root = Path(args.repo)
+    manifest_dir, manifest_path, data = _load(repo_root)
+    try:
+        _, resolved = validate(data, manifest_dir)
+    except Problem as e:
+        print(f"INVALID  {e}", file=sys.stderr)
+        return 1
+
+    _, stale = staleness(resolved, repo_root)
+    if not stale:
+        print("nothing stale")
+        return 0
+
+    moved, changed = [], []
+    for member in data["members"]:
+        if member["id"] not in stale:
+            continue
+        member_moved = True
+        for anchor in member["anchors"]:
+            target = repo_root / anchor["path"]
+            if not target.is_file():
+                member_moved = False
+                break
+            if range_hash(target, anchor["start"], anchor["end"]) == anchor["range_hash"]:
+                continue
+            found = _find_moved_window(
+                target, anchor["range_hash"], anchor["end"] - anchor["start"] + 1
+            )
+            if found is None:
+                member_moved = False
+                break
+            anchor["start"], anchor["end"] = found
+            new_blob = blob_sha(target)
+            if new_blob:
+                anchor["blob"] = new_blob
+        (moved if member_moved else changed).append(member["id"])
+
+    if moved:
+        manifest_path.write_text(json.dumps(data, indent=2) + "\n")
+        for mid in moved:
+            print(f"relocated  {mid}")
+        print(
+            f"\n{len(moved)} member(s) relocated. The bytes are identical — only "
+            "their line numbers moved, so no body needed re-reading."
+        )
+    if changed:
+        for mid in changed:
+            print(f"CHANGED    {mid} — bytes differ; needs `attest`", file=sys.stderr)
+        print(
+            f"\n{len(changed)} member(s) have changed content, not just position. "
+            "Read the region and update the body, then run `attest <id>`.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def cmd_attest(args) -> int:
+    """Re-stamp one member whose anchored content actually changed."""
     repo_root = Path(args.repo)
     manifest_dir, manifest_path, data = _load(repo_root)
     try:
@@ -452,36 +582,52 @@ def cmd_restamp(args) -> int:
     if member is None:
         raise SystemExit(f"no member with id {args.member_id!r}")
 
-    changed = False
+    pending = []
     for anchor in member["anchors"]:
         target = repo_root / anchor["path"]
         if not target.is_file():
-            print(f"missing  {anchor['path']} — cannot re-stamp", file=sys.stderr)
+            print(f"missing  {anchor['path']} — cannot attest", file=sys.stderr)
             return 1
         actual = range_hash(target, anchor["start"], anchor["end"])
-        if actual == anchor["range_hash"]:
-            print(f"unchanged  {anchor['path']}:{anchor['start']}-{anchor['end']}")
-            continue
+        if actual != anchor["range_hash"]:
+            pending.append((anchor, target, actual))
 
-        # Show what the body must now describe. Re-stamping without reading
-        # this is how a manifest comes to assert currency it does not have.
+    if not pending:
+        print(f"{args.member_id} is already fresh")
+        return 0
+
+    for anchor, target, _ in pending:
         print(f"\n--- {anchor['path']}:{anchor['start']}-{anchor['end']} is now:")
         lines = read_lines(target)
         for n in range(anchor["start"], min(anchor["end"], len(lines)) + 1):
             print(f"  {n}  {lines[n - 1].decode('utf-8', 'replace')}")
-        print()
+
+    # The refusal. A body that did not change cannot describe code that did.
+    if not _body_edited(repo_root, manifest_dir, member) and not args.unchanged:
+        print(
+            f"\nREFUSED  {args.member_id}: the anchored code changed but this "
+            "member's body is unchanged against HEAD.\n"
+            "         Update the body to describe what is above, then attest "
+            "again.\n"
+            "         If the bytes changed but nothing the body says stopped "
+            'being true\n         (a rename, a reformat), pass '
+            '--unchanged "<reason>".',
+            file=sys.stderr,
+        )
+        return 1
+
+    for anchor, target, actual in pending:
         anchor["range_hash"] = actual
         new_blob = blob_sha(target)
         if new_blob:
             anchor["blob"] = new_blob
-        changed = True
-
-    if not changed:
-        print("nothing to re-stamp")
-        return 0
 
     manifest_path.write_text(json.dumps(data, indent=2) + "\n")
-    print(f"re-stamped {args.member_id}. Confirm the body still describes the above.")
+    print(f"\nattested  {args.member_id}")
+    if args.unchanged:
+        # For the commit message. Never the manifest: a fact about an edit is
+        # not a fact about the software, and invariant 1 keeps it out.
+        print(f"reason    {args.unchanged}")
     return 0
 
 
@@ -501,10 +647,25 @@ def main() -> int:
     p.add_argument("--repo", default=".")
     p.set_defaults(fn=cmd_check)
 
-    p = sub.add_parser("restamp", help="re-hash one member's anchors")
-    p.add_argument("member_id")
+    p = sub.add_parser(
+        "relocate", help="repair members whose anchored bytes moved but did not change"
+    )
     p.add_argument("--repo", default=".")
-    p.set_defaults(fn=cmd_restamp)
+    p.set_defaults(fn=cmd_relocate)
+
+    p = sub.add_parser(
+        "attest", help="re-stamp one member whose anchored content changed"
+    )
+    p.add_argument("member_id")
+    p.add_argument(
+        "--unchanged",
+        metavar="REASON",
+        help="the bytes changed but nothing the body says stopped being true "
+             "(a rename, a reformat). Printed for the commit message; never "
+             "written to the manifest.",
+    )
+    p.add_argument("--repo", default=".")
+    p.set_defaults(fn=cmd_attest)
 
     args = parser.parse_args()
     return args.fn(args)

@@ -234,3 +234,133 @@ def test_script_emitted_anchor_is_fresh_to_prep(tmp_path: Path) -> None:
     source_obj = ManifestSource(root)
     assert source_obj.stale_member_ids == ()
     assert [c.metadata["member_id"] for c in source_obj.produce()] == ["thing/a"]
+
+
+# --- MOVED and CHANGED are different failures -------------------------------
+
+
+def _git_repo(tmp_path: Path) -> Path:
+    """A committed copy of the fixture, so `attest` has a HEAD to diff against."""
+    import subprocess
+
+    root = tmp_path / "repo"
+    shutil.copytree(FIXTURE, root)
+    for cmd in (
+        ["git", "init", "-q", "."],
+        ["git", "add", "-A"],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+    ):
+        subprocess.run(cmd, cwd=root, check=True, capture_output=True)
+    return root
+
+
+def _run(root: Path, *argv) -> tuple[int, str, str]:
+    """Drive the script's real entry point and capture its streams."""
+    import contextlib
+    import io
+    import sys
+
+    out, err = io.StringIO(), io.StringIO()
+    saved = sys.argv
+    sys.argv = ["lb_manifest.py", *argv, "--repo", str(root)]
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = producer.main()
+    except SystemExit as e:
+        code = e.code or 0
+    finally:
+        sys.argv = saved
+    return code, out.getvalue(), err.getvalue()
+
+
+def _shift_lines_above(path: Path, before_line: int, count: int = 3) -> None:
+    lines = path.read_text().split("\n")
+    lines[before_line - 1 : before_line - 1] = ["# inserted"] * count
+    path.write_text("\n".join(lines))
+
+
+def test_relocate_repairs_a_pure_move_without_touching_the_body(tmp_path: Path) -> None:
+    """The bytes are identical; only the line numbers slid. No judgement needed."""
+    root = _git_repo(tmp_path)
+    _shift_lines_above(root / "src" / "auth.py", before_line=7)
+
+    before = json.loads((root / ".load-bearing" / "manifest.json").read_text())
+    anchor_before = next(
+        m for m in before["members"] if m["id"] == "auth/token-refresh"
+    )["anchors"][0]
+    assert (anchor_before["start"], anchor_before["end"]) == (14, 32)
+
+    _run(root, "relocate")
+
+    after = json.loads((root / ".load-bearing" / "manifest.json").read_text())
+    anchor_after = next(
+        m for m in after["members"] if m["id"] == "auth/token-refresh"
+    )["anchors"][0]
+    assert (anchor_after["start"], anchor_after["end"]) == (17, 35)
+    assert "auth/token-refresh" not in ManifestSource(root).stale_member_ids
+
+
+def test_relocate_refuses_to_touch_a_real_content_change(tmp_path: Path) -> None:
+    """cache/eviction's bytes are not anywhere in the file; it is not a move."""
+    root = _git_repo(tmp_path)
+    before = (root / ".load-bearing" / "manifest.json").read_text()
+
+    code, _, err = _run(root, "relocate")
+
+    assert code == 1
+    assert "cache/eviction" in err and "attest" in err
+    after = json.loads((root / ".load-bearing" / "manifest.json").read_text())
+    anchor = next(m for m in after["members"] if m["id"] == "cache/eviction")["anchors"][0]
+    original = next(
+        m for m in json.loads(before)["members"] if m["id"] == "cache/eviction"
+    )["anchors"][0]
+    assert anchor["range_hash"] == original["range_hash"], "must not re-bless it"
+
+
+def test_attest_refuses_when_the_body_is_unchanged(tmp_path: Path) -> None:
+    """The whole feature. A body that did not change cannot describe code that did."""
+    root = _git_repo(tmp_path)
+
+    code, _, err = _run(root, "attest", "cache/eviction")
+
+    assert code == 1
+    assert "REFUSED" in err
+    assert "cache/eviction" in ManifestSource(root).stale_member_ids
+
+
+def test_attest_proceeds_once_the_body_is_edited(tmp_path: Path) -> None:
+    root = _git_repo(tmp_path)
+    body = root / ".load-bearing" / "members" / "cache-eviction.md"
+    body.write_text(body.read_text() + "\n\nUpdated to match the current code.\n")
+
+    code, out, _ = _run(root, "attest", "cache/eviction")
+
+    assert code == 0
+    assert "attested" in out
+    assert ManifestSource(root).stale_member_ids == ()
+
+
+def test_attest_escape_hatch_keeps_the_reason_out_of_the_manifest(tmp_path: Path) -> None:
+    """Invariant 1, one level out: a fact about an edit is not a fact about
+    the software, so it belongs in a commit message and nowhere else."""
+    root = _git_repo(tmp_path)
+    reason = "renamed a local; every word still true"
+
+    code, out, _ = _run(root, "attest", "cache/eviction", "--unchanged", reason)
+
+    assert code == 0
+    assert reason in out
+    assert reason not in (root / ".load-bearing" / "manifest.json").read_text()
+    assert ManifestSource(root).stale_member_ids == ()
+
+
+def test_a_relocated_manifest_still_satisfies_prep(tmp_path: Path) -> None:
+    """The end of the loop, again: what the producer repairs, PREP reads."""
+    root = _git_repo(tmp_path)
+    _shift_lines_above(root / "src" / "auth.py", before_line=7)
+    _run(root, "relocate")
+
+    source = ManifestSource(root)
+    assert "auth/token-refresh" in {
+        c.metadata["member_id"] for c in source.produce()
+    }

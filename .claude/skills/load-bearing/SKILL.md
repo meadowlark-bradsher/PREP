@@ -157,25 +157,61 @@ No lenient mode, no partial acceptance.
 7. **Commit `.load-bearing/` to git.** The whole directory is tracked, so the
    root tree hash covers it.
 
+## What the gate does not do
+
+A member is **documentation**. The gate checks that documentation stays attached
+to the code it describes. It does not read a value, re-run a computation, or
+assert anything about behaviour, and no member should be written as though it
+did.
+
+Coverage is `members[].anchors[].path` and nothing else. A filename appearing in
+a body, in a `rationale`, or in a `metadata` value is prose or is opaque — PREP
+compares it against nothing, and it makes that file covered by nothing.
+
+This is worth stating because the mistake runs in the dangerous direction.
+Believing the manifest covers a file invites skipping a guard that was never
+there: a member whose body *discusses* a generated data file, anchored to the
+script that writes it, does not protect that file's contents. If something needs
+checking, it needs a check — a test, a digest, a re-run. A member is not one.
+
 ## When code moves
 
-Stale is a signal, not a chore. A member goes stale because the anchored slice
-changed — which means the body may now describe code that no longer exists.
+Stale is a signal, not a chore — but it has **two causes, and they are not the
+same failure**:
+
+- **The bytes moved.** Something above them grew and the line numbers slid.
+  Nothing said about that region stopped being true.
+- **The bytes changed.** The account may have gone with them.
+
+Collapsing the two leaves one remedy — a rehash — and a command that re-blesses
+everything at once produces a manifest that is *fresh by hash and wrong by
+meaning*. That is worse than an openly stale one, because a stale member
+announces itself and PREP is built to handle it.
+
+So the two are separated, and the separation is mechanical rather than a
+judgement call. An equal-length window elsewhere in the file hashing to the
+recorded value **is** proof that nothing changed:
 
 ```
-python .claude/skills/load-bearing/scripts/lb_manifest.py check
+python .claude/skills/load-bearing/scripts/lb_manifest.py relocate
+```
+
+That repairs every pure move in bulk and needs no one to read anything. What it
+cannot repair, it names — and those go one at a time:
+
+```
 python .claude/skills/load-bearing/scripts/lb_manifest.py slice src/cache.py:11-22
+python .claude/skills/load-bearing/scripts/lb_manifest.py attest cache/eviction
 ```
 
-Read the slice. **Update the body first**, then re-stamp:
+`attest` prints the region and then **refuses** if the member's body is unchanged
+against HEAD. Update the body first; the refusal is the point, because a body
+that did not change cannot describe code that did.
 
-```
-python .claude/skills/load-bearing/scripts/lb_manifest.py restamp cache/eviction
-```
-
-`restamp` prints the new slice on purpose. Re-stamping without reading it is how
-a manifest comes to assert currency it does not have — PREP will believe it, and
-an engineer will be tested against a description of code that was deleted.
+For an edit that changed bytes and left every word true — a rename, a reformat —
+pass `--unchanged "<reason>"`. The reason goes to stdout for your commit message
+and never into the manifest: a fact about an edit is what commit messages are
+for, and reader-facing state is what invariant 1 keeps out of this file.
 
 ## Reference
 
