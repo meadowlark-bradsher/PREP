@@ -187,3 +187,67 @@ def test_format_missing_aspects_handles_both_shapes() -> None:
     assert format_missing_aspects(["a", "b"]) == "a, b"
     assert format_missing_aspects(None) == ""
     assert format_missing_aspects([]) == ""
+
+
+# --- why the judge dispatches on aspects, not on content kind ---------------
+
+
+class _StubRegion:
+    """The only thing _aspects_in_scope reads is `.content`."""
+
+    def __init__(self, aspects: list[dict]) -> None:
+        from predictive_review.domain.content import RegionContent
+
+        self.content = RegionContent(
+            kind="member", body="b", metadata={"member_id": "m", "aspects": aspects}
+        ).to_dict()
+
+
+def _region_with(aspects: list[dict]) -> _StubRegion:
+    return _StubRegion(aspects)
+
+
+def test_member_region_with_no_in_scope_aspects_falls_back_to_prose() -> None:
+    """The case that rules kind-dispatch out for the judge.
+
+    This region *is* a member, so dispatching on kind would send it to the
+    member prompt with an empty aspect list. P5 requires a FAIL to name a
+    non-empty subset of what the judge was given — with nothing given, the
+    judge could never fail it. Dispatching on aspect presence instead
+    routes it to prose, where FAIL still means something.
+    """
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    region = _region_with(
+        [{"id": "retry-bound", "claim": "capped", "criteria": ["correctness"]}]
+    )
+    assert _aspects_in_scope(region, "churn-90d") is None
+
+
+def test_member_region_keeps_universal_aspects_under_any_criterion() -> None:
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    region = _region_with(
+        [
+            {"id": "retry-bound", "claim": "capped", "criteria": ["correctness"]},
+            {"id": "token-shape", "claim": "opaque", "criteria": []},
+        ]
+    )
+    scoped = _aspects_in_scope(region, "churn-90d")
+    assert [a.id for a in scoped] == ["token-shape"]
+
+
+def test_region_declaring_no_aspects_is_prose_regardless_of_kind() -> None:
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    assert _aspects_in_scope(_region_with([]), "correctness") is None
+
+
+def test_judge_signature_still_admits_no_content_kind() -> None:
+    """Kind-dispatching the judge would mean handing it the region it is
+    deliberately blind to."""
+    import inspect
+
+    params = set(inspect.signature(ClosureJudge.judge).parameters)
+    assert "kind" not in params
+    assert "region" not in params
