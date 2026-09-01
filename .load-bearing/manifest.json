@@ -19,8 +19,14 @@
     {
       "id": "trust",
       "description": "What PREP is, per its maintainers: a mechanism whose verdicts mean what they claim.",
-      "composed_of": ["independence", "contract-fidelity"],
-      "weights": { "independence": 0.6, "contract-fidelity": 0.4 }
+      "composed_of": [
+        "independence",
+        "contract-fidelity"
+      ],
+      "weights": {
+        "independence": 0.6,
+        "contract-fidelity": 0.4
+      }
     }
   ],
   "default_criterion": "trust",
@@ -37,17 +43,25 @@
           "range_hash": "8413aa8767462993b697da4a8311c55a40573345fe87221bcd7f7852391a34cf"
         }
       ],
-      "scores": { "independence": 0.6, "contract-fidelity": 0.9, "trust": 0.72 },
+      "scores": {
+        "independence": 0.6,
+        "contract-fidelity": 0.9,
+        "trust": 0.72
+      },
       "rationale": "The newest enforcement point and the only one with no prior art in the codebase; also the one a well-meaning change would most plausibly soften into a warning.",
       "aspects": [
         {
           "id": "invented-id-rejected",
-          "criteria": ["contract-fidelity"],
+          "criteria": [
+            "contract-fidelity"
+          ],
           "claim": "an aspect id outside the supplied set is a parse failure, not a filtered-out value"
         },
         {
           "id": "no-partial-salvage",
-          "criteria": ["independence"],
+          "criteria": [
+            "independence"
+          ],
           "claim": "nothing is salvaged from a malformed verdict; recognisable ids are not kept when others are invalid"
         },
         {
@@ -64,23 +78,31 @@
       "anchors": [
         {
           "path": "src/predictive_review/content_sources/manifest.py",
-          "start": 109,
-          "end": 128,
-          "blob": "52aad9646b0edb61db76a5b8ccfe77f972aae278",
-          "range_hash": "512718436221ce238de7959d8c685f9afd7e4fa35be6f0e1dfe9b89cd4572253"
+          "start": 110,
+          "end": 145,
+          "blob": "1b3cf0b9fe397f56b656f903ab812a1b7d6ca250",
+          "range_hash": "f2b62bc2999989943b62068f0473b5967d459b476dd7073b96b645a77587a8e5"
         }
       ],
-      "scores": { "independence": 0.2, "contract-fidelity": 1.0, "trust": 0.52 },
+      "scores": {
+        "independence": 0.2,
+        "contract-fidelity": 1.0,
+        "trust": 0.52
+      },
       "rationale": "Duplicated by necessity in the producer skill; the two copies are pinned together by test_producer_skill.py and will drift the moment someone edits one.",
       "aspects": [
         {
           "id": "lf-only-normalisation",
-          "criteria": ["contract-fidelity"],
+          "criteria": [
+            "contract-fidelity"
+          ],
           "claim": "CRLF is normalised to LF and nothing else is: no whitespace stripping, no BOM handling"
         },
         {
           "id": "terminator-convention",
-          "criteria": ["contract-fidelity"],
+          "criteria": [
+            "contract-fidelity"
+          ],
           "claim": "a trailing newline terminates the last line rather than beginning an empty one, so a range ending at the last line hashes the same either way"
         },
         {
@@ -98,27 +120,44 @@
         {
           "path": "src/predictive_review/sessions/service.py",
           "start": 878,
-          "end": 909,
-          "blob": "349b844be1698a3aef572846d80c767fdc775be2",
-          "range_hash": "85c6e5ffe97b43e75bc2c71cd586b07c8c53abc51d2ea0e3f4413300ab473a09"
+          "end": 910,
+          "blob": "b67ce9e52ae7ecb3ef3125c9f552f7cfec15c8b6",
+          "range_hash": "dbaed0e10452cf6e0e9ad49fe2bf795cfda979190bc537d9f3efc6c4a4ba2e0b"
         }
       ],
-      "scores": { "independence": 0.95, "contract-fidelity": 0.5, "trust": 0.77 },
+      "scores": {
+        "independence": 0.95,
+        "contract-fidelity": 0.5,
+        "trust": 0.77
+      },
       "rationale": "The empty-scope fallback is a judgement call neither the contract nor the build order covered; it is the likeliest thing here to be changed by someone who has not read why.",
       "aspects": [
         {
           "id": "universal-aspects-always-apply",
-          "criteria": ["independence"],
+          "criteria": [
+            "independence"
+          ],
           "claim": "an aspect with an empty criteria list applies under every criterion"
         },
         {
+          "id": "composite-covers-components",
+          "criteria": [
+            "independence"
+          ],
+          "claim": "an aspect scoped to a component surfaces under a composite that contains it, transitively, so a composite never covers less than its parts"
+        },
+        {
           "id": "empty-scope-means-prose",
-          "criteria": ["independence"],
+          "criteria": [
+            "independence"
+          ],
           "claim": "a region whose aspects all serve other criteria falls back to prose mode, because a structured failure must name an aspect from the set it was given"
         },
         {
           "id": "scope-fixed-at-persist",
-          "criteria": ["contract-fidelity"],
+          "criteria": [
+            "contract-fidelity"
+          ],
           "claim": "aspects are rebuilt from persisted content, so a session's scope does not change if the manifest does"
         }
       ],

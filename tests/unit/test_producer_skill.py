@@ -71,7 +71,7 @@ def test_agrees_on_every_fixture_anchor() -> None:
         b"  leading\ntrailing   \n",    # whitespace that must NOT be stripped
         b"\n\n\n",                      # blank lines only
         b"single",                      # one line, no terminator
-        b"\xef\xbb\xbfBOM\nsecond\n",   # BOM, which must NOT be special-cased
+        b"\xef\xbb\xbfBOM\nsecond\n",   # BOM, stripped by both since 2026-09-01
         "unicode — em dash\nnext\n".encode(),
     ],
 )
@@ -185,14 +185,24 @@ def test_both_reject_the_same_mutations(tmp_path: Path, mutate, label: str) -> N
     )
 
 
-def test_both_allow_state_shaped_keys_inside_metadata(tmp_path: Path) -> None:
+def test_both_reject_state_shaped_keys_inside_metadata(tmp_path: Path) -> None:
+    """Inverted 2026-09-01 alongside its PREP-side twin.
+
+    Both implementations exempted `metadata` and both were wrong for the
+    same reason: with the schema closed everywhere else, the carve-out
+    made the rule vestigial. Two independent validators reproduced that
+    measurement before either changed.
+    """
     root = _copy(tmp_path)
     data = _load(root)
     data["members"][0]["metadata"] = {"status": "whatever"}
     _write(root, data)
 
-    _producer_validate(root)
-    assert ManifestSource(root).produce()
+    with pytest.raises(producer.Problem) as producer_error:
+        _producer_validate(root)
+    with pytest.raises(ManifestError) as prep_error:
+        ManifestSource(root)
+    assert producer_error.value.path == prep_error.value.path
 
 
 # --- an anchor the script emits is one PREP reads as fresh ------------------

@@ -103,7 +103,9 @@ gets reported as, so it has to be specific enough to act on.
 
 `criteria` scopes the aspect. An aspect that only matters when reviewing for
 correctness should say `["correctness"]`; one that matters no matter why you are
-looking should say `[]`. Scoping is not decoration — PREP shows the judge only
+looking should say `[]`. A composite criterion carries its components' aspects,
+so scoping to a component does not hide it from the composite — you do not need
+`[]` to make something visible by default. Scoping is not decoration — PREP shows the judge only
 the aspects in scope, and a PASS means "covered *at that scope*". An aspect
 list that is all `[]` throws that away.
 
@@ -128,8 +130,8 @@ PREP validates strictly and reports the JSON path of the first offending field.
 No lenient mode, no partial acceptance.
 
 - **State-shaped fields.** `reviewed`, `understood`, `verified`, `known`,
-  `mastered`, `status` — at any depth, any capitalisation, anywhere outside
-  `metadata`. A manifest carries content; whether anyone understands it is not
+  `mastered`, `status` — at any depth, any capitalisation, **including inside
+  `metadata`**. A manifest carries content; whether anyone understands it is not
   the manifest's business. This also means **you cannot name a criterion
   `status`** or any of the others.
 - **Unknown fields**, anywhere. `metadata` is the only open bag.

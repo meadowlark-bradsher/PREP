@@ -251,3 +251,90 @@ def test_judge_signature_still_admits_no_content_kind() -> None:
     params = set(inspect.signature(ClosureJudge.judge).parameters)
     assert "kind" not in params
     assert "region" not in params
+
+
+# --- a composite carries its components' aspects ----------------------------
+
+COMPOSITION = {"identity": ["correctness", "churn-90d"], "correctness": [], "churn-90d": []}
+
+
+def _scoped_region(aspects: list[dict], composition=COMPOSITION):
+    from predictive_review.domain.content import RegionContent
+
+    class _R:
+        content = RegionContent(
+            kind="member",
+            body="b",
+            metadata={
+                "member_id": "m",
+                "aspects": aspects,
+                "criteria_composition": composition,
+            },
+        ).to_dict()
+
+    return _R()
+
+
+ACROSS_CRITERIA = [
+    {"id": "corr-only", "claim": "c", "criteria": ["correctness"]},
+    {"id": "churn-only", "claim": "c", "criteria": ["churn-90d"]},
+    {"id": "universal", "claim": "c", "criteria": []},
+]
+
+
+def test_composite_sees_every_component_aspect() -> None:
+    """Invariant 3: a composite is the maintainers' whole account, so it
+    cannot cover less than the components a user may override to."""
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    scoped = _aspects_in_scope(_scoped_region(ACROSS_CRITERIA), "identity")
+    assert [a.id for a in scoped] == ["corr-only", "churn-only", "universal"]
+
+
+def test_component_still_sees_only_its_own_and_universal() -> None:
+    """The override has to stay narrower, or selecting it buys nothing."""
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    scoped = _aspects_in_scope(_scoped_region(ACROSS_CRITERIA), "correctness")
+    assert [a.id for a in scoped] == ["corr-only", "universal"]
+
+
+def test_composite_is_a_superset_of_each_component() -> None:
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    composite = {a.id for a in _aspects_in_scope(_scoped_region(ACROSS_CRITERIA), "identity")}
+    for component in ("correctness", "churn-90d"):
+        part = {a.id for a in _aspects_in_scope(_scoped_region(ACROSS_CRITERIA), component)}
+        assert part <= composite, f"{component} escapes its own composite"
+
+
+def test_expansion_is_transitive_through_nested_composites() -> None:
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    nested = {"top": ["identity"], "identity": ["correctness"], "correctness": []}
+    scoped = _aspects_in_scope(_scoped_region(ACROSS_CRITERIA, nested), "top")
+    assert "corr-only" in {a.id for a in scoped}
+
+
+def test_expansion_terminates_on_a_cycle() -> None:
+    """The validator rejects a self-naming composite but not a longer loop,
+    and this must terminate on anything that reached it."""
+    from predictive_review.domain.aspect import expand_criterion
+
+    assert expand_criterion("a", {"a": ["b"], "b": ["a"]}) == {"a", "b"}
+
+
+def test_unrelated_criterion_still_yields_prose_mode() -> None:
+    """Expansion must not quietly make everything in scope."""
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    only_churn = [{"id": "churn-only", "claim": "c", "criteria": ["churn-90d"]}]
+    assert _aspects_in_scope(_scoped_region(only_churn), "correctness") is None
+
+
+def test_missing_composition_falls_back_to_exact_match() -> None:
+    """A manifest predating the snapshot, or a diff region, must still work."""
+    from predictive_review.sessions.service import _aspects_in_scope
+
+    scoped = _aspects_in_scope(_scoped_region(ACROSS_CRITERIA, None), "identity")
+    assert [a.id for a in scoped] == ["universal"]

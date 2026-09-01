@@ -4,18 +4,22 @@ This function decides whether a member is still describing the code it was
 written about. It is the single point where PREP and any producer must agree
 byte for byte.
 
-The rule is deliberately small. Bytes are read, CRLF is normalised to LF, and
-the requested lines are hashed. Nothing else happens: no trailing whitespace is
-stripped, no byte-order mark is special-cased, no encoding is guessed. Every
-additional normalisation rule would be another chance for two independent
-implementations to diverge, and a divergence does not look like a bug — every
-member simply reads as stale, as though the code had moved.
+Four normalisations, and each is stated rather than left to be inferred. A
+leading UTF-8 BOM is stripped, because an editor adding one has not changed the
+code. CRLF and bare CR both fold to LF, because a line ending is an artifact of
+how the file was checked out. Trailing whitespace is kept, because it is a real
+edit to a real byte. A missing final newline is invisible: the trailing newline
+terminates a line rather than beginning an empty one, so it is dropped before
+slicing and the selected lines are joined with LF with no terminator appended.
+A range ending at the last line therefore hashes identically whether or not the
+file ends in a newline.
 
-One detail is not derivable from the specification and is fixed here. A file's
-trailing newline terminates its last line rather than beginning an empty one, so
-it is dropped before slicing, and the selected lines are joined with LF with no
-terminator appended. The consequence is that a range ending at the last line
-hashes identically whether or not the file ends in a newline.
+The BOM and bare-CR rules ran the other way here until a second implementation
+of this contract turned up folding both. Neither repository could produce such a
+file, so the disagreement was invisible — it would have been discovered by
+whoever first anchored something an editor had touched on Windows, arriving as a
+hash mismatch with no diff to account for it. The rules that are dangerous are
+the ones nobody wrote down, not the ones anyone argued about.
 
 Because the hash covers only the anchored lines, a file edited elsewhere leaves
 its members fresh, and two members anchored to different ranges of one file have

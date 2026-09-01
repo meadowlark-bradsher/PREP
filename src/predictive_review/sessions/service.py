@@ -894,6 +894,7 @@ def _aspects_in_scope(region: Region, criterion: str | None) -> list[Aspect] | N
     if not declared:
         return None
 
+    composition = content.metadata.get("criteria_composition")
     scoped = [
         aspect
         for aspect in (
@@ -904,7 +905,7 @@ def _aspects_in_scope(region: Region, criterion: str | None) -> list[Aspect] | N
             )
             for raw in declared
         )
-        if aspect.applies_under(criterion)
+        if aspect.applies_under(criterion, composition)
     ]
     return scoped or None
 

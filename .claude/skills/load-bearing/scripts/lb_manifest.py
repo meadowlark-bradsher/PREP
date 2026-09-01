@@ -10,11 +10,12 @@ even slightly differently marks every member stale on the first run, and
 the failure looks like the code moved rather than like two programs
 disagreeing about newlines. `range_hash` below is that rule, stated once:
 
-    sha256 over lines start..end inclusive, 1-based, after CRLF -> LF.
-    No trailing-whitespace stripping. No BOM handling. Selected lines are
-    joined with LF and no trailing terminator is appended, so a range
-    ending at the last line hashes the same whether or not the file ends
-    in a newline.
+    sha256 over lines start..end inclusive, 1-based, after: stripping a
+    leading UTF-8 BOM, folding CRLF and bare CR to LF, KEEPING trailing
+    whitespace, and treating a missing final newline as invisible.
+    Selected lines are joined with LF and no trailing terminator is
+    appended, so a range ending at the last line hashes the same whether
+    or not the file ends in a newline.
 
 Usage
   lb_manifest.py slice   src/auth.py:14-32      show the anchored lines
@@ -76,7 +77,10 @@ _ASPECT_FIELDS = frozenset({"id", "criteria", "claim"})
 
 
 def read_lines(path: Path) -> list[bytes]:
-    normalized = path.read_bytes().replace(b"\r\n", b"\n")
+    raw = path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    normalized = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     lines = normalized.split(b"\n")
     if lines and lines[-1] == b"":
         lines = lines[:-1]  # a trailing newline terminates a line, it is not one
@@ -151,12 +155,11 @@ def _reject_state_fields(node, path=""):
             child = f"{path}.{key}" if path else str(key)
             if isinstance(key, str) and key.lower() in STATE_FIELD_NAMES:
                 raise Problem(
-                    f"state-shaped field {key!r} is not allowed outside `metadata`; "
-                    "a manifest carries content, never a judgement about it",
+                    f"state-shaped field {key!r} is not allowed anywhere in a "
+                    "manifest, including `metadata`; a manifest carries content, "
+                    "never a judgement about it",
                     child,
                 )
-            if key == "metadata":
-                continue
             _reject_state_fields(value, child)
     elif isinstance(node, list):
         for i, item in enumerate(node):

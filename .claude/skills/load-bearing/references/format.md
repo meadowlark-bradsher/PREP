@@ -19,10 +19,12 @@ Fixed path, single index. PREP never scans the directory — it reads
 
 `range_hash` is:
 
-> sha256 over lines `start..end` inclusive, 1-based, after normalising CRLF to
-> LF. No trailing-whitespace stripping. No BOM handling. Selected lines are
-> joined with LF and **no trailing terminator is appended**, so a range ending
-> at the last line hashes the same whether or not the file ends in a newline.
+> sha256 over lines `start..end` inclusive, 1-based, after: stripping a leading
+> UTF-8 BOM, folding CRLF **and bare CR** to LF, **keeping** trailing
+> whitespace, and treating a missing final newline as invisible. Selected lines
+> are joined with LF and **no trailing terminator is appended**, so a range
+> ending at the last line hashes the same whether or not the file ends in a
+> newline.
 
 Consequences worth knowing:
 
@@ -83,8 +85,12 @@ Use `scripts/lb_manifest.py anchor PATH:START-END`. Do not reimplement this.
 | `criteria` | yes | Criterion ids this aspect serves. `[]` = applies under every criterion. |
 | `claim` | yes | One sentence stating what the member does, in terms the judge can check. |
 
-A member whose aspects all belong to other criteria is judged in prose mode for
-that session — the structured path needs at least one aspect in scope.
+A **composite** criterion carries its components' aspects, transitively: an
+aspect scoped to `correctness` is in scope under `identity` when `identity` is
+composed of it. A composite never covers less than its own parts.
+
+A member whose aspects all belong to unrelated criteria is judged in prose mode
+for that session — the structured path needs at least one aspect in scope.
 
 ## Rejected outright
 
@@ -92,7 +98,9 @@ Validation fails with the JSON path of the offending field. There is no lenient
 mode.
 
 - Any of `reviewed`, `understood`, `verified`, `known`, `mastered`, `status` —
-  at any depth, case-insensitive, anywhere outside `metadata`.
+  at any depth, case-insensitive, **including inside `metadata`**. Opaque means
+  the reading and the judge never see it; it does not mean unexamined at
+  ingestion, and `metadata` is the only place a state field can otherwise land.
 - Unknown fields in any object except `metadata`.
 - `body` and `body_ref` both present, or both absent.
 - `body_ref` that is absolute or escapes `.load-bearing/`.

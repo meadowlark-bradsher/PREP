@@ -18,6 +18,7 @@ what any engineer has understood about it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -31,14 +32,51 @@ class Aspect:
         """True when this aspect applies under every criterion."""
         return not self.criteria
 
-    def applies_under(self, criterion: str | None) -> bool:
+    def applies_under(
+        self,
+        criterion: str | None,
+        composition: Mapping[str, Sequence[str]] | None = None,
+    ) -> bool:
         """Contract invariant 7: judge scope follows the criterion.
 
-        A universal aspect always applies. A scoped one applies only when
-        the session is ordering by a criterion it serves — which is what
-        makes a PASS meaningful *at that scope* rather than a claim about
-        the whole member.
+        A universal aspect always applies. A scoped one applies when the
+        session's criterion is one it serves — which is what makes a PASS
+        meaningful *at that scope* rather than a claim about the whole
+        member.
+
+        A **composite** criterion also carries its components. Invariant 3
+        makes a composite the maintainers' account of what the software
+        is, with each component a narrower view a user may override to; a
+        composite that showed fewer aspects than its own parts would
+        invert that, and would push authors to scope everything universal
+        to work around it — turning invariant 7 into a no-op that still
+        looks like it is working.
         """
         if self.is_universal:
             return True
-        return criterion is not None and criterion in self.criteria
+        if criterion is None:
+            return False
+        return bool(set(self.criteria) & expand_criterion(criterion, composition))
+
+
+def expand_criterion(
+    criterion: str,
+    composition: Mapping[str, Sequence[str]] | None = None,
+) -> set[str]:
+    """A criterion plus every criterion it is composed of, transitively.
+
+    Cycle-guarded: the validator rejects a composite naming itself, but
+    nothing there rules out a longer loop, and this must terminate on any
+    manifest that reached it.
+    """
+    if not composition:
+        return {criterion}
+    seen: set[str] = set()
+    pending = [criterion]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(composition.get(current) or ())
+    return seen

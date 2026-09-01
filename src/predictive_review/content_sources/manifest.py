@@ -52,7 +52,8 @@ SUPPORTED_MAJOR = 0
 
 CONTENT_KIND = "member"
 
-# P4. Rejected by name at any depth outside `metadata`, case-insensitively.
+# Invariant 1. Rejected by name at any depth, `metadata` included,
+# case-insensitively.
 # These name a *judgement about* a member rather than the member itself,
 # and the transport is not allowed to carry judgements.
 STATE_FIELD_NAMES = frozenset(
@@ -107,18 +108,34 @@ class Criterion:
 
 
 def range_hash(path: Path, start: int, end: int) -> str:
-    """P2: sha256 over lines `start..end` inclusive, 1-based, CRLF->LF.
+    """sha256 over lines `start..end` inclusive, 1-based, after normalising.
 
-    No trailing-whitespace stripping and no BOM handling — a manifest and
-    PREP must agree byte-for-byte, so every extra normalisation rule is a
-    chance to disagree.
+    Four rules, and each is here because a producer and PREP must agree
+    byte-for-byte about what "this region" means:
+
+      - a leading UTF-8 BOM is stripped: an editor adding one has not
+        changed the code
+      - CRLF *and bare CR* fold to LF: a line ending is a checkout artifact
+      - trailing whitespace is KEPT: a real edit to a real byte
+      - a missing final newline is invisible: a property of the file, not
+        of the region
 
     Selected lines are joined with LF and no trailing terminator is
     appended, so a range ending at the last line hashes the same whether
-    or not the file ends in a newline. P2 does not pin this; see the
-    module's tests for the pinned behaviour.
+    or not the file ends in a newline.
+
+    The BOM and bare-CR rules were originally the other way round here,
+    against a producer that folded both. Neither repo can currently
+    produce such a file, so the divergence was latent — and would have
+    been discovered by whoever first anchored a file an editor touched on
+    Windows, as a hash mismatch with no diff to explain it. Every rule is
+    now stated rather than left to be inferred, which is the actual
+    lesson.
     """
-    normalized = path.read_bytes().replace(b"\r\n", b"\n")
+    raw = path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    normalized = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     lines = normalized.split(b"\n")
     if lines and lines[-1] == b"":
         lines = lines[:-1]  # a trailing newline terminates a line, it is not one
@@ -147,24 +164,35 @@ def _require_str(value: Any, path: str) -> str:
 
 
 def _reject_state_fields(node: Any, path: str) -> None:
-    """P4. Walk everything outside `metadata` looking for state-shaped names.
+    """Invariant 1. Walk the whole manifest looking for state-shaped names.
 
     Recursive rather than field-list-driven: a state field smuggled three
     levels down is the same violation as one at the top, and the closed
     field lists alone would not catch it inside a value that is allowed
     to be a free-form object.
+
+    `metadata` is walked too, and that is the only reason this check
+    still does anything. P3 closes every other object in the schema, so a
+    state word anywhere else is already rejected as an unknown field and
+    this rule only improves the message. Inside `metadata` — the one
+    opaque bag, and therefore the one place a state field can actually
+    land in a valid manifest — it is the sole guard.
+
+    Exempting `metadata` (as an earlier reading did) left the rule
+    redundant everywhere it applied and disabled everywhere it mattered.
+    Opaque means the reading and the judge never see it; it does not mean
+    unexamined at ingestion.
     """
     if isinstance(node, Mapping):
         for key, value in node.items():
             child = f"{path}.{key}" if path else str(key)
             if isinstance(key, str) and key.lower() in STATE_FIELD_NAMES:
                 raise ManifestError(
-                    f"state-shaped field {key!r} is not allowed outside `metadata`; "
-                    "a manifest carries content, never a judgement about it",
+                    f"state-shaped field {key!r} is not allowed anywhere in a "
+                    "manifest, including `metadata`; a manifest carries content, "
+                    "never a judgement about it",
                     child,
                 )
-            if key == "metadata":
-                continue  # the one opaque bag
             _reject_state_fields(value, child)
     elif isinstance(node, list):
         for i, item in enumerate(node):
@@ -480,6 +508,9 @@ class ManifestSource:
         members, criteria, default_criterion = _parse(data, self._manifest_dir)
         self._criteria = criteria
         self._default_criterion = default_criterion
+        self._composition = {
+            cid: list(criterion.composed_of) for cid, criterion in criteria.items()
+        }
 
         self._fresh, self._stale_member_ids = _partition(members, self._is_fresh)
 
@@ -492,6 +523,12 @@ class ManifestSource:
                 body=member.body,
                 metadata={
                     "member_id": member.id,
+                    # Snapshotted per region so a session's aspect scope is
+                    # fixed at submit, exactly as its aspects are. Reading
+                    # the live manifest at judge time would let a criteria
+                    # edit change what an in-flight session is being
+                    # judged against.
+                    "criteria_composition": self._composition,
                     "anchors": member.anchors,
                     "scores": member.scores,
                     "rationale": member.rationale,

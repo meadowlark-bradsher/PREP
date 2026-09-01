@@ -146,16 +146,45 @@ def test_state_field_rejection_is_case_insensitive(tmp_path: Path) -> None:
     assert e.value.path == "members[0].Understood"
 
 
-def test_state_shaped_key_is_allowed_inside_metadata(tmp_path: Path) -> None:
-    """`metadata` is the one opaque bag; the ban is on the transport, not on
-    whatever a repo wants to keep for itself."""
+def test_state_shaped_key_is_rejected_inside_metadata_too(tmp_path: Path) -> None:
+    """This test asserted the opposite until 2026-09-01, and the reason it
+    was wrong is worth keeping attached to it.
+
+    The old reading followed P4's carve-out: `metadata` is the one opaque
+    bag, so the ban was on the transport and not on whatever a repo keeps
+    for itself. That is defensible until you measure it. P3 closes every
+    other object in the schema, so a state word anywhere else is already
+    rejected as an unknown field — meaning the carve-out left this rule
+    redundant everywhere it applied and disabled in the only place a
+    state field can actually land in a valid manifest.
+
+    The contract's invariant 1 carries no scope qualifier, and the build
+    order says the contract wins where they disagree. Opaque means the
+    reading and the judge never see it; it does not mean unexamined at
+    ingestion.
+    """
     root = _copy_fixture(tmp_path)
     data = _load(root)
     _member(data, "auth/token-refresh")["metadata"] = {"status": "whatever"}
     _write(root, data)
 
-    contents = ManifestSource(root).produce()
-    assert contents[0].metadata["metadata"] == {"status": "whatever"}
+    with pytest.raises(ManifestError) as e:
+        ManifestSource(root)
+    assert e.value.path == "members[0].metadata.status"
+
+
+def test_metadata_still_carries_non_state_values(tmp_path: Path) -> None:
+    """The bag is still opaque — it is only state-shaped *names* that are
+    refused, not arbitrary content."""
+    root = _copy_fixture(tmp_path)
+    data = _load(root)
+    _member(data, "auth/token-refresh")["metadata"] = {
+        "origin": {"ticket": "PREP-14", "owner": "auth-team"}
+    }
+    _write(root, data)
+
+    content = ManifestSource(root).produce()[0]
+    assert content.metadata["metadata"]["origin"]["ticket"] == "PREP-14"
 
 
 # --- P3: closed schema -----------------------------------------------------
