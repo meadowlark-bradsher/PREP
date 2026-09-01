@@ -313,6 +313,11 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
    pane takes the whole window. dual_monitor.js toggles this class. */
 .two-pane.context-popped { grid-template-columns: 1fr; }
 .two-pane.context-popped .reading-pane { display: none; }
+/* The drag gutter is a real grid child. In a single-column grid it would
+   flow to its own implicit row and sit as an 8px bar above the action
+   pane, so popping the context out has to take it with the pane it
+   resizes. */
+.two-pane.context-popped .gutter { display: none; }
 
 .reading-pane, .action-pane {
   background: white;
@@ -373,22 +378,29 @@ pre.hunk code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 /* Collapsed states. JS toggles these classes on the container; CSS
    responds by shrinking the affected track and hiding pane innards
    except the rotated-text reopen button. */
-.two-pane.left-collapsed {
+/* Collapse does not apply while the context is popped out. Both features
+   set grid-template-columns on .two-pane at identical specificity (two
+   classes each), so without the :not() the later rule — collapse — would
+   win and leave a 36px dead track for a pane context-popped has already
+   removed. Expressed as "collapse is off while popped" rather than by
+   undoing each effect downstream, so a new collapse rule inherits the
+   exemption instead of needing its own override. */
+.two-pane.left-collapsed:not(.context-popped) {
   grid-template-columns: 36px 0 minmax(360px, 1fr);
 }
-.two-pane.right-collapsed {
+.two-pane.right-collapsed:not(.context-popped) {
   grid-template-columns: minmax(0, 1fr) 0 36px;
 }
-.two-pane.left-collapsed  .gutter,
-.two-pane.right-collapsed .gutter { pointer-events: none; }
-.two-pane.left-collapsed  .reading-pane .pane-header,
-.two-pane.left-collapsed  .reading-pane .pane-body,
-.two-pane.right-collapsed .action-pane  .pane-header,
-.two-pane.right-collapsed .action-pane  .pane-body { display: none; }
-.two-pane.left-collapsed  .reading-pane .pane-reopen,
-.two-pane.right-collapsed .action-pane  .pane-reopen { display: block; }
-.two-pane.left-collapsed  .reading-pane,
-.two-pane.right-collapsed .action-pane { padding: 0; }
+.two-pane.left-collapsed:not(.context-popped)  .gutter,
+.two-pane.right-collapsed:not(.context-popped) .gutter { pointer-events: none; }
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane .pane-header,
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane .pane-body,
+.two-pane.right-collapsed:not(.context-popped) .action-pane  .pane-header,
+.two-pane.right-collapsed:not(.context-popped) .action-pane  .pane-body { display: none; }
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane .pane-reopen,
+.two-pane.right-collapsed:not(.context-popped) .action-pane  .pane-reopen { display: block; }
+.two-pane.left-collapsed:not(.context-popped)  .reading-pane,
+.two-pane.right-collapsed:not(.context-popped) .action-pane { padding: 0; }
 
 .layout-reset {
   text-align: right; font-size: 0.8rem; color: var(--muted);
